@@ -2949,7 +2949,6 @@
     "runDone": "terminée",
     "runNotDone": "non terminée",
     "runRecord": "journal",
-    "mailEvent": "Courriel : {label}",
     "noTimeline": "Rien d’enregistré pour l’instant.",
     "job": {
       "term": "Trimestre",
@@ -2966,7 +2965,19 @@
       "more": "Afficher plus",
       "less": "Afficher moins"
     },
-    "tabsLabel": "Volets de la candidature"
+    "tabsLabel": "Volets de la candidature",
+    "tl": {
+      "today": "Aujourd’hui",
+      "yesterday": "Hier",
+      "noDate": "Sans date",
+      "toStage": "Passée à « {to} »",
+      "fromStage": "depuis « {from} »",
+      "subject": "Objet",
+      "sender": "De",
+      "said": "Ce qu’il dit",
+      "showMail": "Voir dans Courriels",
+      "otherMail": "Un courriel à ce sujet"
+    }
   },
   "applications": {
     "title": "Candidatures",

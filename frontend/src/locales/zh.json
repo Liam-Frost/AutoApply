@@ -2949,7 +2949,6 @@
     "runDone": "完成",
     "runNotDone": "未完成",
     "runRecord": "记录",
-    "mailEvent": "邮件：{label}",
     "noTimeline": "暂无记录。",
     "job": {
       "term": "学期",
@@ -2966,7 +2965,19 @@
       "more": "展开全文",
       "less": "收起"
     },
-    "tabsLabel": "申请详情"
+    "tabsLabel": "申请详情",
+    "tl": {
+      "today": "今天",
+      "yesterday": "昨天",
+      "noDate": "无日期",
+      "toStage": "进入「{to}」阶段",
+      "fromStage": "从「{from}」",
+      "subject": "主题",
+      "sender": "发件人",
+      "said": "内容摘要",
+      "showMail": "在“邮件”中查看",
+      "otherMail": "相关邮件往来"
+    }
   },
   "applications": {
     "title": "申请",

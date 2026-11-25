@@ -442,6 +442,7 @@ def detail(application_id: int) -> dict[str, Any] | None:
         line: list[dict[str, Any]] = []
         for e in s.query(ApplicationEvent).filter_by(application_id=a.id):
             line.append({"at": _iso(e.at), "kind": "status", "old": humanize.APP_STATUS.get(e.old, e.old), "new": humanize.APP_STATUS.get(e.new, e.new),
+                         "to": e.new or "", "from": e.old or "",      # (the stages by their keys: what the page draws them as)
                          "by": SOURCE.get(e.source or "", e.source or ""), "note": getattr(e, "note", "") or ""})
         for r in s.query(Run).filter(Run.ref == f"application:{a.id}", Run.kind.in_(("execute", "scout"))):      # (runs of earlier versions)
             line.append({"at": _iso(r.created_at), "kind": "run", "what": T("server.applications.fillApplicationForms") if r.kind == "execute" else T("server.applications.readingTheLaterSteps"), "ok": bool(r.ok), "run_id": r.id})
@@ -451,7 +452,8 @@ def detail(application_id: int) -> dict[str, Any] | None:
             if e["kind"] in ("report", "ended"):
                 line.append({"at": e["at"], "kind": "run", "what": T("server.applications.aRunOfThe"), "ok": e["kind"] == "report", "said": str(e.get("text") or "")[:300]})
         for m in mails:
-            line.append({"at": _iso(m.received_at), "kind": "mail", "label": messages.mail_label(m.category, m.event or "new")[1], "subject": m.subject, "message_id": m.message_id})
+            line.append({"at": _iso(m.received_at), "kind": "mail", "label": messages.mail_label(m.category, m.event or "new")[1], "subject": m.subject, "message_id": m.message_id,
+                         "category": m.category or "other", "event": m.event or "new", "summary": m.summary or "", "sender": m.sender or ""})
         out["timeline"] = sorted(line, key=lambda x: x["at"] or "", reverse=True)
         refs = {f"application:{a.id}", f"job:{j.id}", *(f"draft:{d.id}" for d in drafts)}
         draft_ids = {d.id for d in drafts}

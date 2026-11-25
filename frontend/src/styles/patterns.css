@@ -117,9 +117,48 @@ a.mark:hover { color: var(--primary); }
 .mail-summary { margin-top: 2px; font-size: var(--fs-sm); }
 .mail-others { margin-top: var(--s3); }
 .mail-foot { margin: var(--s3) 0 0; }
-.tl-row { display: flex; align-items: baseline; gap: var(--s3); padding: var(--s1) 0; font-size: var(--fs-sm); }
-.tl-when { flex: none; min-width: 118px; }
-.tl-what { min-width: 0; overflow-wrap: anywhere; }
+/* An application's time line (ActivityTimeline.vue): days, and in each a column of times, one continuous line with a
+   node per event, and what happened. Compact - no card per event. The geometry is in variables, so that the line runs
+   exactly through the nodes' centres. */
+.atl { --atl-time: 44px; --atl-node: 22px; --atl-gap: var(--s3); }
+.atl-day + .atl-day { margin-top: var(--s4); }
+.atl-day-label { margin: 0 0 var(--s1); font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--text-3); letter-spacing: .02em; }
+.atl-list { list-style: none; margin: 0; padding: 0; }
+.atl-item { position: relative; display: grid; grid-template-columns: var(--atl-time) var(--atl-node) minmax(0, 1fr); column-gap: var(--atl-gap); align-items: start; }
+.atl-item::before { content: ''; position: absolute; left: calc(var(--atl-time) + var(--atl-gap) + var(--atl-node) / 2 - .5px); top: 0; bottom: 0; width: 1px; background: var(--border); }
+.atl-item:first-child::before { top: calc(var(--s1) + var(--atl-node) / 2); }
+.atl-item:last-child::before { bottom: calc(100% - var(--s1) - var(--atl-node) / 2); }
+.atl-item:only-child::before { display: none; }
+.atl-time { padding-top: calc(var(--s1) + 3px); font-size: var(--fs-xs); color: var(--text-3); text-align: right; white-space: nowrap; }
+.atl-node { position: relative; z-index: 1; margin-top: var(--s1); width: var(--atl-node); height: var(--atl-node); border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-3); }
+.atl-node svg { width: 12px; height: 12px; }
+.atl-body { min-width: 0; padding: var(--s1) 0; }
+.atl-head { display: flex; flex-direction: column; gap: 1px; width: 100%; min-width: 0; margin: 0; padding: 2px var(--s2); border: 0; border-radius: var(--r-sm); background: none;
+  font: inherit; text-align: left; color: inherit; }
+/* (a head that opens its event is a button: none of a button's own look - the row is the control) */
+.atl button.atl-head { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 1px; height: auto; font-weight: inherit; line-height: inherit; white-space: normal; cursor: pointer; }
+button.atl-head:hover { background: var(--surface-2); }
+button.atl-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.atl-title { font-size: var(--fs-sm); color: var(--text-2); line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atl-sub { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+/* what moves the application on: its colour on the node, its title in full weight; quiet events stay quiet */
+.atl-item.strong .atl-title { color: var(--text); font-weight: var(--fw-semibold); }
+.atl-item.strong .atl-node { border-color: transparent; background: var(--tone-soft, var(--neutral-soft)); color: var(--tone, var(--text-2)); }
+.atl-item.off .atl-title { color: var(--text-3); }
+.atl-item.tone-primary { --tone: var(--primary); --tone-soft: var(--primary-soft); }
+.atl-item.tone-info { --tone: var(--info); --tone-soft: var(--info-soft); }
+.atl-item.tone-ok { --tone: var(--ok); --tone-soft: var(--ok-soft); }
+.atl-item.tone-warn { --tone: var(--warn); --tone-soft: var(--warn-soft); }
+.atl-item.tone-bad { --tone: var(--bad); --tone-soft: var(--bad-soft); }
+.atl-item:not(.strong).tone-ok .atl-node { color: var(--ok); }
+.atl-detail { margin: var(--s1) var(--s2) var(--s2); padding: var(--s2) var(--s3); border-left: 2px solid var(--border); font-size: var(--fs-xs); }
+.atl-detail dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px var(--s3); margin: 0 0 var(--s2); }
+.atl-detail dt { color: var(--text-3); }
+.atl-detail dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.atl-said { margin: 0 0 var(--s2); color: var(--text-2); overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 560px) { .atl { --atl-time: 36px; --atl-gap: var(--s2); } }
+.mail-row.picked { outline: 2px solid var(--primary-soft); outline-offset: 2px; border-radius: var(--r-sm); }
 
 /* ───────────────────────── The record of an application (RecordPanel) ───────────────────────── */
 .rec-block { display: block; }
