@@ -774,6 +774,12 @@ def _schedule_jobs() -> None:
             alarms.tick()
         except Exception:  # noqa: BLE001
             log.exception("calendar reminders failed")
+        try:      # an interview or an assessment whose time has passed: did it happen, how did it go (checkin.py)
+            from . import checkin
+
+            checkin.ask_due()
+        except Exception:  # noqa: BLE001
+            log.exception("the check-ins after interviews failed")
         try:      # the summary each morning, at its hour (chat.morning)
             from . import chat
 

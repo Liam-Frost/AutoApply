@@ -33,6 +33,12 @@ function shape(e) {
     // (a note of the applicant's - a correction, how it went - opens in full: the row shows its beginning)
     return { icon: 'branch', tone: STAGE[e.to] ?? '', strong: moved, title: moved ? T('application.tl.toStage', { to: e.new }) : (e.note || e.new), sub, more: !!e.note }
   }
+  if (e.kind === 'checkin') {      // what the applicant said after an interview or an assessment
+    const what = e.category === 'assessment' ? T('application.tl.assessment') : T('application.tl.interview')
+    const felt = e.feeling ? T('todos.checkin.' + e.feeling) : ''
+    return { icon: e.done ? 'check' : 'x', tone: e.done ? (e.feeling === 'bad' ? 'warn' : 'ok') : '', strong: e.done,
+      title: e.done ? T('application.tl.checkedDone', { what }) : T('application.tl.checkedNot', { what }), sub: [felt, e.note].filter(Boolean).join(' · '), more: !!e.note }
+  }
   if (e.kind === 'run') {
     return { icon: 'bot', tone: '', strong: false, title: `${e.what} · ${e.ok ? T('application.runDone') : T('application.runNotDone')}`, sub: e.said || '', more: !!e.said, off: !e.ok }
   }
@@ -86,6 +92,9 @@ const toggle = (i) => { const s = new Set(open.value); s.has(i) ? s.delete(i) : 
                   <template v-if="x.e.summary"><dt>{{ $t('application.tl.said') }}</dt><dd data-notr>{{ x.e.summary }}</dd></template>
                 </dl>
                 <button type="button" class="sm" @click="emit('open-mail', x.e.message_id)"><Icon name="mail" />{{ $t('application.tl.showMail') }}</button>
+              </template>
+              <template v-else-if="x.e.kind === 'checkin'">
+                <p class="atl-said" data-notr>{{ x.e.note }}</p>
               </template>
               <template v-else-if="x.e.kind === 'status'">
                 <p class="atl-said" data-notr>{{ x.e.note }}</p>

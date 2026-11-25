@@ -116,6 +116,10 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
         return None
     ref = _ref(application_id, category)
     if event == "cancelled":
+        # (called off: kept as that - closed is also what a done one is, and nothing is asked about one called off: checkin.py)
+        with db.session() as s:
+            for t in s.query(Todo).filter_by(kind=KIND, ref=ref, status="open"):
+                t.payload = {**(t.payload or {}), "cancelled": True}
         notify.close_todos(KIND, ref)
         return None
     asks = asks or {}

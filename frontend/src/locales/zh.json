@@ -185,7 +185,22 @@
     "registeringAgain": "Agent 会在这个网站注册新账号，然后继续申请。",
     "registerAgainMenu": "重新注册…",
     "signInWithProvider": "用 {provider} 登录",
-    "signsInWith": "这个网站以后用 {provider} 登录，Agent 会接着申请"
+    "signsInWith": "这个网站以后用 {provider} 登录，Agent 会接着申请",
+    "checkin": {
+      "askInterview": "时间已经过了。面试进行了吗？确认后会更新申请的状态，你的感受也会记下来，方便之后分析。",
+      "askAssessment": "截止时间已经过了。测评做完了吗？确认后会更新申请的状态，你的感受也会记下来，方便之后分析。",
+      "hadIt": "面试完成了",
+      "hadNot": "没有进行",
+      "didIt": "已完成测评",
+      "didNot": "没有做",
+      "howWasIt": "感觉怎么样？",
+      "good": "顺利",
+      "ok": "一般",
+      "bad": "不太理想",
+      "notePlaceholder": "留几句备注（可选）",
+      "noted": "已记下，申请状态已更新",
+      "notedNot": "已记下"
+    }
   },
   "language": {
     "beta": "{name}（测试中）"
@@ -2976,7 +2991,11 @@
       "sender": "发件人",
       "said": "内容摘要",
       "showMail": "在“邮件”中查看",
-      "otherMail": "相关邮件往来"
+      "otherMail": "相关邮件往来",
+      "interview": "面试",
+      "assessment": "在线测评",
+      "checkedDone": "已完成{what}",
+      "checkedNot": "{what}没有进行"
     }
   },
   "applications": {

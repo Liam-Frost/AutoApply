@@ -185,7 +185,22 @@
     "registeringAgain": "The agent will register a new account there and go on with the application.",
     "registerAgainMenu": "Register again…",
     "signInWithProvider": "Sign in with {provider}",
-    "signsInWith": "This site is signed in to with {provider} from now on - the agent goes on with the application"
+    "signsInWith": "This site is signed in to with {provider} from now on - the agent goes on with the application",
+    "checkin": {
+      "askInterview": "Its time has passed. Did the interview take place? Saying so moves the application on, and how it went is kept for your analysis.",
+      "askAssessment": "Its deadline has passed. Did you do the assessment? Saying so moves the application on, and how it went is kept for your analysis.",
+      "hadIt": "It took place",
+      "hadNot": "It did not take place",
+      "didIt": "I did it",
+      "didNot": "I did not do it",
+      "howWasIt": "How did it go?",
+      "good": "Well",
+      "ok": "So-so",
+      "bad": "Not well",
+      "notePlaceholder": "A word for later (optional)",
+      "noted": "Noted - the application is up to date",
+      "notedNot": "Noted"
+    }
   },
   "language": {
     "beta": "{name} (beta)"
@@ -2976,7 +2991,11 @@
       "sender": "From",
       "said": "What it says",
       "showMail": "Show in Mail",
-      "otherMail": "An email about it"
+      "otherMail": "An email about it",
+      "interview": "the interview",
+      "assessment": "the assessment",
+      "checkedDone": "Done: {what}",
+      "checkedNot": "Did not happen: {what}"
     }
   },
   "applications": {
