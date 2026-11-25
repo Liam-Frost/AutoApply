@@ -67,6 +67,32 @@ def proxy_url() -> str:
     return "" if m == "none" else custom_url() if m == "custom" else _system_url()
 
 
+def httplib2_proxy(method: str = "https") -> Any:
+    """The proxy for httplib2 - what the Gmail API is read with - looked up for each connection it opens (it is given
+    as ``proxy_info``). httplib2 by itself takes a proxy only from HTTPS_PROXY / HTTP_PROXY, never from the system's proxy
+    setting that the other libraries read - and uses one only with PySocks installed: without it, it drops the proxy
+    without a word. Gmail had always been read straight from Google while everything else went through the proxy; where
+    Google is reached only through one, no mail was read for a day (2026-11-25)."""
+    url = proxy_url()
+    if not url:
+        return None
+    import httplib2
+
+    return httplib2.proxy_info_from_url(url, method, noproxy=bypass())
+
+
+def requests_session() -> Any:
+    """A `requests` session that goes the way the setting says, not the way this process's environment happens to say:
+    with a NO_PROXY and no HTTPS_PROXY in it, requests does not look at the system's proxy at all."""
+    import requests
+
+    s = requests.Session()
+    s.trust_env = False
+    if url := proxy_url():
+        s.proxies = {"http": url, "https": url}
+    return s
+
+
 def bypass() -> str:
     extra = ",".join(x.strip() for x in (db.get_setting("proxy.bypass") or "").replace("，", ",").split(",") if x.strip())
     return LOCAL + ("," + extra if extra else "")

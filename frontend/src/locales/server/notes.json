@@ -484,6 +484,7 @@
  "server.humanize.awaitingYourApproval": "Said by the program (humanize.py).",
  "server.humanize.basedOnYourFeedback": "Said by the program (humanize.py).",
  "server.humanize.cancelled": "Said by the program (humanize.py).",
+ "server.humanize.cantReachGmail": "Said by the program (humanize.py): a mail check could not reach Gmail at all (timeout, no connection) - not the mailbox's fault.",
  "server.humanize.cantReachThisAi": "Said by the program (humanize.py).",
  "server.humanize.chatgptConnectorNotInstalled": "Said by the program (humanize.py).",
  "server.humanize.checkApplicationStatusOn": "Said by the program (humanize.py).",

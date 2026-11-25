@@ -32,6 +32,7 @@ dependencies = [
   "python-docx>=1.1",
   "google-api-python-client>=2.140",
   "google-auth-oauthlib>=1.2",
+  "pysocks>=1.7.1",  # httplib2 (the Gmail API's transport) goes through a proxy only with it - without, it ignores the proxy and connects directly
   "cryptography>=43",
   "claude-agent-sdk>=0.2.186",
   "pystray>=0.19",

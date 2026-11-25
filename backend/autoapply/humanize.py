@@ -67,6 +67,7 @@ _RULES: list[tuple[str, str]] = [
     (r"连不上 AI 服务|cannot reach the Claude API", T("server.humanize.cantReachThisAi")),
     (T("server.humanize.noModelSelectedYet"), T("server.humanize.noModelSelectedFor")),
     (r"subscription login is not usable|not logged in", T("server.humanize.signInExpiredPlease")),
+    (r"cannot reach Gmail", T("server.humanize.cantReachGmail")),
     (r"网站暂时打不开|SiteDown|HTTP 5\d\d|Server error '5\d\d|error page|empty page|could not open the posting|net::ERR|Page\.goto: Timeout|Site Maintenance|ConnectTimeout|ReadTimeout|ConnectError|ReadError|RemoteProtocolError|timed out|getaddrinfo failed|Name or service not known|Connection (reset|refused|aborted)",
      T("server.humanize.theSiteCantBe")),
     (T("server.humanize.windowClosedOrTimed"), T("server.humanize.theWindowClosedBefore")),

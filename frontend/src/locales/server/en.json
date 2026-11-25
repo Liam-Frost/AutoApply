@@ -484,6 +484,7 @@
  "server.humanize.awaitingYourApproval": "Awaiting your approval",
  "server.humanize.basedOnYourFeedback": "Based on your feedback: \\1",
  "server.humanize.cancelled": "Cancelled",
+ "server.humanize.cantReachGmail": "Can't reach Gmail - usually the network or the proxy. Settings → System and data → Network connection can test it; mail is read again on schedule once it works.",
  "server.humanize.cantReachThisAi": "Can't reach this AI service. Check your connection and Settings → System and data → Network connection.",
  "server.humanize.chatgptConnectorNotInstalled": "ChatGPT connector not installed",
  "server.humanize.checkApplicationStatusOn": "Check application status on the employer's site",

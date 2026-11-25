@@ -484,6 +484,7 @@
  "server.humanize.awaitingYourApproval": "待批准",
  "server.humanize.basedOnYourFeedback": "按你的修改意见：\\1",
  "server.humanize.cancelled": "已取消",
+ "server.humanize.cantReachGmail": "连不上 Gmail，通常是网络或代理不通。可以在“设置 → 系统与数据 → 网络连接”里测试连接；连通后会按时自动再读邮件。",
  "server.humanize.cantReachThisAi": "无法连接这家 AI 服务。请检查网络和“设置 → 系统与数据 → 网络连接”。",
  "server.humanize.chatgptConnectorNotInstalled": "尚未安装 ChatGPT 接入组件",
  "server.humanize.checkApplicationStatusOn": "到雇主网站查询申请状态",
