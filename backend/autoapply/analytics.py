@@ -662,6 +662,8 @@ def _journal_runs(folder: Path) -> list[dict[str, Any]]:
             cur["end_kind"] = str(e["outcome"])
         elif k == "needs_applicant":
             cur["need"] = str(e.get("need") or "sign_in")
+        elif k in ("code_given", "applicant_done"):      # (that wait is over: the run went on after it)
+            cur["need"] = ""
         elif k == "ask":
             cur["asked"] = True
         elif k == "mailed":

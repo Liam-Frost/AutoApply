@@ -341,7 +341,7 @@ def _run_one(t: Task) -> None:
 
         profile_init.began_to_wait(status, waits_for, result)
     try:
-        keeps_failing(t.kind, status, error)
+        keeps_failing(t.kind, status, error, result)
     except Exception:  # noqa: BLE001 - telling is no reason for the task's own end to fail
         log.exception("could not tell that %s keeps failing", t.kind)
 
@@ -353,8 +353,10 @@ IN_A_ROW = 3
 ON_THE_CLOCK = ("mail", "discover")
 
 
-def keeps_failing(kind: str, status: str, error: str) -> None:
-    if kind not in ON_THE_CLOCK:
+def keeps_failing(kind: str, status: str, error: str, result: dict[str, Any] | None = None) -> None:
+    """(Work that was skipped - a look for a confirmation that is already in, a mailbox not set up - did not reach
+    anything: it says neither that the work works again nor that it failed.)"""
+    if kind not in ON_THE_CLOCK or (result or {}).get("skipped"):
         return
     ref = f"failing:{kind}"
     if status == "done":
@@ -363,8 +365,8 @@ def keeps_failing(kind: str, status: str, error: str) -> None:
     if status != "failed":
         return
     with db.session() as s:
-        last = [r.status for r in s.query(Task).filter(Task.kind == kind, Task.status.in_(("done", "failed")), Task.finished_at.isnot(None))
-                .order_by(Task.finished_at.desc()).limit(IN_A_ROW)]
+        rows = s.query(Task).filter(Task.kind == kind, Task.status.in_(("done", "failed")), Task.finished_at.isnot(None)).order_by(Task.finished_at.desc()).limit(IN_A_ROW * 10)
+        last = [r.status for r in rows if not (r.result or {}).get("skipped")][:IN_A_ROW]
     if len(last) == IN_A_ROW and all(x == "failed" for x in last):
         from . import humanize
 
