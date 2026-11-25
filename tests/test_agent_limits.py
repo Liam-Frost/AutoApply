@@ -613,6 +613,8 @@ def test_a_site_signed_in_to_with_google_is_offered_on_its_card_follows_googles_
     assert card["sign_in_with"] == [{"key": "google", "name": "Google"}]
     # chosen: the site's work in Google's browser, its session from the other browser gone, the card closed, the work on
     assert c.post("/api/accounts/sign-in-with", json={"tenant_key": key, "provider": "apple"}).status_code == 400      # (none held)
+    assert c.post("/api/accounts/sign-in-with", json={"tenant_key": key, "provider": "../google"}).status_code == 400  # (no such provider)
+    assert auth.provider_key("google") == "google" and auth.provider_key("Google") is None and auth.provider_key("") is None
     assert c.post("/api/accounts/sign-in-with", json={"tenant_key": "idp:google", "provider": "google"}).status_code == 400
     assert c.post("/api/accounts/sign-in-with", json={"tenant_key": key, "provider": "google"}).json()["resumed"] == 1
     assert sites.fact(key, "sign_in_via") == "google" and browser.session_info(key) is None

@@ -221,10 +221,18 @@ def register_again(tenant_key: str, email: str) -> None:
         a.has_password, a.fail_count = 0, 0
 
 
+def provider_key(name: str) -> str | None:
+    """The program's own key of a sign-in provider named ``name`` (as a request names it), or None: what is looked up
+    and stored from then on is that key, never the words of the request - a provider's saved sign-in is a file named
+    after it."""
+    return {k: k for k in browser.identities()}.get(str(name or ""))
+
+
 def holds(provider: str) -> bool:
     """Does the program hold the applicant's sign-in with this provider (saved, not run out)?"""
-    got = browser.session_info(f"idp:{provider}")
-    return bool(got) and not got.get("expired") and provider in browser.identities()
+    key = provider_key(provider)
+    got = browser.session_info(f"idp:{key}") if key else None
+    return bool(got) and not got.get("expired")
 
 
 def sign_in_options(tenant_key: str) -> list[dict[str, str]]:
@@ -253,8 +261,9 @@ def sign_in_with(tenant_key: str, provider: str) -> None:
 
     from .models import Task
 
+    provider = provider_key(provider) or ""
     if not holds(provider):
-        raise ValueError(f"no sign-in with {provider} is held")
+        raise ValueError("no sign-in with that provider is held")
     key = sites.account(tenant_key)
     theirs = browser_policy.session_browser(f"idp:{provider}")
     made = sites.fact(key, "session_browser")
