@@ -17,6 +17,7 @@ import { loadPersona, persona, session } from './ui'
 import { followServerLang, initI18n } from './i18n'
 import { i18n } from './i18n/catalog'
 import { installGuards } from './dirty'
+import { installFresh } from './fresh'
 import { pairSoon } from './labels'
 import { api } from './api'
 import AnalyticsView from './views/AnalyticsView.vue'
@@ -83,6 +84,7 @@ const router = createRouter({
 })
 
 installGuards(router)       // what was typed and not saved is asked about before the page is left
+installFresh(router)        // a page left open while the program was updated loads the new build (after what is asked above)
 
 // After going to another page the keyboard is at that page's title - not on a link of the sidebar, with the new page
 // somewhere behind it. (A query that changed is the same page; so is another tab of a page whose tabs are in the path -

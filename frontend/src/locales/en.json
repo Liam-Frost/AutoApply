@@ -3312,7 +3312,9 @@
     "selected": "{n} selected",
     "clearSelection": "Clear selection",
     "more": "More",
-    "moreInfo": "More information"
+    "moreInfo": "More information",
+    "newBuild": "AutoApply was updated. This page is still the earlier version - load it again to see what is new.",
+    "loadItNow": "Reload now"
   },
   "controls": {
     "combobox": {

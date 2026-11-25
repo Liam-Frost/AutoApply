@@ -132,7 +132,7 @@
 | 抽屉 | `<SideDrawer title sub>`（`components/SideDrawer.vue`） | 详情和长列表；不要自己拼 `.overlay` 加 `.drawer`。焦点规则见下面“盖在页面上的一层” |
 | 数据状态 | `dataState(read)` + `<DataState :s="st" what @retry>`（`src/data.js`） | 页面读数据的四种状态，见下面“读数据的页面” |
 | 动作 | `run(fn, okText, after, { name, form })`（`src/ui.js`） | 所有会改东西的按钮都走它，见下面“做一件事的按钮” |
-| 轻提示 | `toast(text, tone, { to, link })`（`src/ui.js`） | 轻量的结果（“已保存”“已排队”）。不是唯一的结果出口：表单的错误留在表单上，读不到数据由页面自己说 |
+| 轻提示 | `toast(text, tone, { to, link })` / `{ act, link }` / `stay`（`src/ui.js`） | 轻量的结果（“已保存”“已排队”）；`act` 给一个就地的操作（撤销），`stay` 让它留到被关掉（程序已更新、页面还是旧版本：`src/fresh.js`）。不是唯一的结果出口：表单的错误留在表单上，读不到数据由页面自己说 |
 | 表单错误 | `<FormError name>` | 配合 `run(..., { form: name })`：上一次提交被拒绝的原因留在按钮旁边，直到再次提交 |
 | 口径说明 | `<Explain label>文字</Explain>` | 一个数字怎么算的。能点开（鼠标、键盘、触屏都行），不要只放在 `title` 里 |
 | 设置小节 | `<SetSection id title how>` | 设置页的一节：有地址（`/settings/<组>/<id>`），标题旁写明怎么保存（`how`: `top` 右上角 / `own` 自己的按钮 / `now` 立即生效 / 空） |

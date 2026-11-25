@@ -7,12 +7,12 @@ export const toasts = reactive([])
 let seq = 0
 
 // `more`: { to, link } - somewhere to go from the message ("it is queued" -> the work plan); or { act, link } - one thing
-// to do about it ("removed" -> undo)
+// to do about it ("removed" -> undo). `stay`: it stays until it is closed (or what it offers is done).
 export function toast(text, tone = '', more = null) {
   if (!text) return
   const id = ++seq
   toasts.push({ id, text, tone, ...(more || {}) })
-  setTimeout(() => dismissToast(id), tone === 'bad' || more ? 9000 : 4500)
+  if (!(more && more.stay)) setTimeout(() => dismissToast(id), tone === 'bad' || more ? 9000 : 4500)
 }
 export function dismissToast(id) {
   const i = toasts.findIndex((t) => t.id === id)

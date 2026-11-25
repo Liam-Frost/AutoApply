@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..say import say as T
 
+import hashlib
 import logging
 import os
 import mimetypes
@@ -443,7 +444,30 @@ async def _portal_cors(request, call_next):  # noqa: ANN001, ANN202
         for k, v in hdr.items():
             resp.headers[k] = v
         return resp
-    return await call_next(request)
+    resp = await call_next(request)
+    if request.scope["path"].startswith("/api/") and (build := interface_build()):
+        resp.headers["X-Build"] = build      # (which interface this program serves - see interface_build)
+    return resp
+
+
+_BUILD: dict[str, Any] = {"at": None, "id": ""}
+
+
+def interface_build() -> str:
+    """Which build of the interface this program serves: a short digest of its index.html, which names every file of
+    the build by a hash of its content - another build, another digest. The page is told it when it is served (a
+    <meta>), and every answer of the API says it (X-Build). A page left open while the program was updated and started
+    again still ran the interface it was loaded with - what the update brought was not there until the page was loaded
+    again by hand (2026-11-24); now the page sees that the two differ and loads itself again (frontend/src/fresh.js).
+    Empty where there is no built interface (the development server serves its own)."""
+    f = config.FRONTEND_DIST / "index.html"
+    try:
+        st = f.stat()
+        if _BUILD["at"] != (st.st_mtime_ns, st.st_size):
+            _BUILD.update(at=(st.st_mtime_ns, st.st_size), id=hashlib.sha256(f.read_bytes()).hexdigest()[:12])
+    except OSError:
+        return ""
+    return str(_BUILD["id"])
 
 
 def _404(x: Any, what: str = "not found") -> Any:
@@ -3772,5 +3796,6 @@ if config.FRONTEND_DIST.exists():
 
         index = _files["all"].get("index.html") or config.FRONTEND_DIST / "index.html"
         base = access.conf()["root_path"] + "/"
-        html = index.read_text(encoding="utf-8").replace('<base href="/" />', f'<base href="{base}" />', 1)
+        # (and which build it is: interface_build)
+        html = index.read_text(encoding="utf-8").replace('<base href="/" />', f'<base href="{base}" /><meta name="autoapply-build" content="{interface_build()}" />', 1)
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})

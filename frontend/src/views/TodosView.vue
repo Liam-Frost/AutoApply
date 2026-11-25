@@ -135,7 +135,7 @@ const takeover = (t) => act(() => api.post('/accounts/takeover', { tenant_key: t
   T('todos.aBrowserWindowIs'))
 // "Register again": the account on record is given up; the agent makes a new one with the address chosen here (by default
 // the same mailbox's +alias, which still reaches the applicant) and the application goes on
-// (from the card's menu - a rare thing, not a fourth control in the card's row: its address is asked below the card)
+// (a button of its own after the sign-in's checkbox - in the card's menu nobody found it; its address is asked below the card)
 const registerAs = ref({})
 const registering = ref({})
 const askRegister = (t) => { registerAs.value[t.id] = t.register_as || ''; registering.value[t.id] = true }
@@ -210,9 +210,10 @@ function acts(t) {
   if (['takeover', 'login'].includes(t.kind) && p.tenant_key) {
     main = A(p.provider ? T('todos.signInTo', { provider: p.provider }) : T('todos.signIn'), 'login', { go: () => takeover(t) })
     menu = [away]
-    if (t.register_as !== undefined) menu = [A(T('todos.registerAgainMenu'), 'user', { go: () => askRegister(t) }), away]
     // what is kept of a sign-in is said where the button is; how to have the app sign in by itself is help
     more = t.remembers ? { remember: true } : p.tenant_key.startsWith('idp:') ? { note: T('todos.onlyTheSignIn') } : { help: T('todos.inThisSignIn') }
+    // a new account instead of the one that cannot be signed into: in sight, after what belongs to the sign-in
+    if (t.register_as !== undefined) more.then = [A(T('todos.registerAgainMenu'), 'user', { go: () => askRegister(t), disabled: !!registering.value[t.id] })]
   } else if (t.kind === 'code') {
     main = A(T('todos.giveItToThe'), 'check', { go: () => giveCode(t), disabled: !codes.value[t.id] })
     menu = [away]; more = { note: T('todos.theAgentIsWaiting') }
@@ -395,6 +396,7 @@ onMounted(() => { load(); loadRang() })
         </template>
         <label v-if="acts(t).remember" class="meta todo-check"><input v-model="saveCred" type="checkbox" /> {{ $t('todos.rememberMyPasswordAnd') }}</label>
         <HelpPop v-if="acts(t).help" :label="view(t).title(t)" :text="acts(t).help" />
+        <button v-for="(a, i) in acts(t).then || []" :key="'then-' + i" :disabled="a.disabled" @click="a.go()"><Icon v-if="a.icon" :name="a.icon" />{{ a.label }}</button>
         <span class="grow"></span>
         <Popover :label="$t('todos.remindMeLater')" :width="300" align="end" @open="day = ''">
           <template #trigger="{ toggle, attrs }"><IconButton icon="clock" :label="$t('todos.remindMeLater')" v-bind="attrs" @click="toggle" /></template>
@@ -415,7 +417,7 @@ onMounted(() => { load(); loadRang() })
         </Popover>
         <Menu v-if="acts(t).menu.length" :label="$t('common.more')" :items="acts(t).menu.map((a, i) => ({ id: i, label: a.label, icon: a.icon, danger: a.danger }))" @pick="(i) => follow(acts(t).menu[i])" />
       </div>
-      <!-- "Register again" (from the menu): a new account instead of the one that cannot be signed into, with which address -->
+      <!-- "Register again": a new account instead of the one that cannot be signed into, with which address -->
       <div v-if="registering[t.id]" class="reg-again">
         <div class="field"><label :for="'reg-' + t.id">{{ $t('todos.registerWith') }}</label>
           <input :id="'reg-' + t.id" v-model="registerAs[t.id]" v-focus class="w-full" type="email" autocomplete="off" @keyup.enter="registerAs[t.id] && registerAgain(t)" /></div>
