@@ -1,0 +1,72 @@
+{
+  "version": "2.1.2",
+  "date": "2026-11-25",
+  "title": {
+    "en": "Calendar and to-dos apart, Gmail through your proxy",
+    "zh": "日程与待办分开，Gmail 走你的代理",
+    "fr": "Calendrier et tâches séparés, Gmail via votre proxy"
+  },
+  "intro": "2.1.2 keeps your calendar and your to-do page apart: an item of your own calendar, an interview and an assessment from an\nemployer's email are on the calendar only - a notice when they arrive and at their reminders - and a task is what is\nleft to do. Gmail is read through the proxy set in the program. A sign-in card can register again, or sign in with\nGoogle (or another provider whose sign-in the program holds) and leave the rest to the agent. A browser window handed\nto you opens maximized, Workday boards that refuse the program's requests are read through their own pages, and a page\nleft open while AutoApply was updated switches to the new version.",
+  "known_limits": [
+    "Signing in to a site with Google from its card, and Workday boards read through their own pages, are unit-tested; neither has been seen on a real site yet."
+  ],
+  "fragments": [
+    {
+      "id": "2026-11-24-sign-card-can-register-3b10",
+      "sha256": "dbfb7125df98334e9f057c844fddd5c86791487ee3114f4d62307596301c39d3"
+    },
+    {
+      "id": "2026-11-25-sign-in-with-provider-5625",
+      "sha256": "f50846dd5fad6d06be92cf68e205a0556b3955d920198dcf04d6e5821f2ef0f8"
+    },
+    {
+      "id": "2026-11-24-interview-employer-s-email-07df",
+      "sha256": "60828de64da2a280e5ecfb42c06ed23e44910dbe53f19cb109e82e24180cc1bc"
+    },
+    {
+      "id": "2026-11-24-item-your-own-calendar-fa75",
+      "sha256": "eee9e382c89b88a7f90271ee7dfd8db99031003b73752b101cbe038eacd5bdb4"
+    },
+    {
+      "id": "2026-11-25-assessment-on-calendar-7020",
+      "sha256": "e06676072da0db2265716d460eb5c391357154e76f09f56b0278568ad92ca803"
+    },
+    {
+      "id": "2026-11-23-button-shows-what-started-239c",
+      "sha256": "0b39c7132236e1516da30d6baa21b21d1e1ed25e382895d214d4bcfd40bf729e"
+    },
+    {
+      "id": "2026-11-23-mail-you-sent-longer-8f36",
+      "sha256": "489b2300d74a38f2493f2ffe2ace8e4c001f172311cbf5421faf6c6bb543edfe"
+    },
+    {
+      "id": "2026-11-24-browser-window-handed-you-55cf",
+      "sha256": "ddcb649758ee455a39876d006eefc3d35a261c4081dad9531b4cc8f479f86efa"
+    },
+    {
+      "id": "2026-11-24-workday-boards-read-through-09a0",
+      "sha256": "d59b4f5a62d02b310b4cffa2cd2d5e9b79eb41964913445e3ad20bf32a0ca52f"
+    },
+    {
+      "id": "2026-11-24-do-card-whose-buttons-ec6d",
+      "sha256": "ecfc17b74a0911f1cd243c41aab08311c3849569fe0d9411f72137f2000b0018"
+    },
+    {
+      "id": "2026-11-24-page-follows-update-fe84",
+      "sha256": "1344b7c76d0bae699561d46aea8f6888781ccc471448bfb19eebf4926cd22345"
+    },
+    {
+      "id": "2026-11-24-sources-watched-employers-stands-da32",
+      "sha256": "ee644151b8cb9e5e9f56dee0a870f0fee484d3bb81f81af5b0aac2db8b79722d"
+    },
+    {
+      "id": "2026-11-24-where-file-went-takes-b442",
+      "sha256": "1439442000e9adb54851534930c576a03082cafcfa7bf1603cf3e8b6d39dfde7"
+    },
+    {
+      "id": "2026-11-25-gmail-through-proxy-52c7",
+      "sha256": "07ded7b03d12a73f22a79d442b96444ac156ef7213d0d9a624699cd162eeb632"
+    }
+  ],
+  "corrections": []
+}
