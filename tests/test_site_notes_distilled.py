@@ -53,10 +53,24 @@ def test_twelve_notes_are_distilled_the_lines_kept_and_what_holds_for_the_system
     got = sites.about(key)
     assert got["digest"]["text"] == "## Better\nall of it" and len(got["digest"]["from"]) == 25 and got["notes"] == []
 
+    # reworded or cleared while the model wrote: the applicant's word stands, the result is not written
+    for i in range(12):
+        sites.note(key, f"again {i}")
+
+    def meanwhile(change):
+        def model(prompt, schema, **kw):
+            change()
+            return {"how": "## Stale", "system": []}
+        return model
+
+    monkeypatch.setattr(llm, "json", meanwhile(lambda: sites.set_digest(key, "## Theirs")))
+    assert sites.distill(key) == {"distilled": 0, "stale": True} and sites.about(key)["digest"]["text"] == "## Theirs"
+    monkeypatch.setattr(llm, "json", meanwhile(lambda: sites.forget(key)))
+    assert sites.distill(key)["stale"] and sites.about(key)["digest"] is None and sites.about(key)["notes"] == []
     # the applicant's own wording takes the account's place; the agent reads it
     c = TestClient(app)
     r = c.put(f"/api/sites/{key}/digest", json={"text": "## Mine\nMy way of doing it."}).json()
-    assert r["digest"]["text"] == "## Mine\nMy way of doing it." and r["digest"]["by"] == "applicant" and len(r["digest"]["from"]) == 25
+    assert r["digest"]["text"] == "## Mine\nMy way of doing it." and r["digest"]["by"] == "applicant"
     assert "My way of doing it." in sites.notes(key)
     # the site reached under another address: one account goes with it, the lines with it
     sites.note("workday:acme.wd1", "a line on the old address")

@@ -292,7 +292,11 @@ def distill(key: str) -> dict[str, Any]:
     went = {(n.get("at"), n.get("text")) for n in raw}
     with db.session() as s:
         row = _row(s, key, make=True)
-        _, now_raw = _split(list(row.notes or []))
+        now_digest, now_raw = _split(list(row.notes or []))
+        # (what the model was given is still what is there: the applicant may have reworded the account or cleared the
+        # notes while it wrote - their word stands, and this result is not written)
+        if now_digest != digest or not any((n.get("at"), n.get("text")) in went for n in now_raw):
+            return {"distilled": 0, "stale": True}
         kept = [n for n in now_raw if (n.get("at"), n.get("text")) not in went]       # (noted while the model wrote)
         folded = [{"at": n.get("at", ""), "text": n.get("text", "")} for n in raw] + list((digest or {}).get("from") or [])
         row.notes = [{"at": date.today().isoformat(), "text": how, "digest": True, "from": folded[:DIGEST_KEEPS]}, *kept]
