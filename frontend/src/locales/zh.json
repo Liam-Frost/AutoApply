@@ -588,7 +588,7 @@
     },
     "sites": {
       "notesTheAgentKeeps": "Agent 记下的网站笔记",
-      "withEveryApplicationThe": "Agent 每做一份申请，都会把这个网站值得下一次知道的事记下来：控件怎么用、简历解析会弄错什么、下一步藏在哪里。下次到同一个网站时它先读这些。写给整个招聘系统的笔记，对这个系统上的所有雇主都有效。点一行查看内容。",
+      "withEveryApplicationThe": "Agent 每做一份申请，都会把这个网站值得下一次知道的事记下来：控件怎么用、简历解析会弄错什么、下一步藏在哪里。攒到十来条时，它们会被写成一份“这个网站怎么做”（你可以改写），对整个招聘系统都成立的经验会提升到系统的笔记里。下次到同一个网站时 Agent 先读这些。点一行查看内容。",
       "website": "网站",
       "scope": "范围",
       "notes": "笔记",
@@ -600,7 +600,13 @@
       "clearTheNotesAbout": "清除这个网站的笔记？",
       "theAgentWillFind": "Agent 下次到这个网站时会重新摸索。会话和已保存的账号不受影响。",
       "theWholeRecruitingSystem": "整个招聘系统",
-      "thisSiteOnly": "这一个网站"
+      "thisSiteOnly": "这一个网站",
+      "howItIsWorked": "这个网站的做法，{day} 由笔记提炼",
+      "yourWording": "你改过",
+      "editIt": "编辑",
+      "notesThatWentIn": "并入的原始笔记（{n} 条）",
+      "notedSince": "之后的笔记",
+      "wordingSaved": "已保存，Agent 从下一次申请起按它做"
     },
     "page": {
       "theDataForThis": "本页数据加载失败",
