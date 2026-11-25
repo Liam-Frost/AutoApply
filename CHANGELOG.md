@@ -4,6 +4,81 @@
 
 All notable changes to AutoApply, newest first. Versions follow [Semantic Versioning](https://semver.org/); changes not released yet are pending fragments in `changes/fragments/`.
 
+## [2.1.2] - 2026-11-25
+
+2.1.2 keeps your calendar and your to-do page apart: an item of your own calendar, an interview and an assessment from an
+employer's email are on the calendar only - a notice when they arrive and at their reminders - and a task is what is
+left to do. Gmail is read through the proxy set in the program. A sign-in card can register again, or sign in with
+Google (or another provider whose sign-in the program holds) and leave the rest to the agent. A browser window handed
+to you opens maximized, Workday boards that refuse the program's requests are read through their own pages, and a page
+left open while AutoApply was updated switches to the new version.
+
+### Added
+
+- **A sign-in card can register again: the old account is given up and the agent makes a new one**
+
+  When an account on a site cannot be signed into - its registration was cut off, the password-reset mails never come - the card asking you to sign in now also has a *Register again* button, after the sign-in's own. You choose the address for the new account (suggested: your own with +the site's name, which Gmail, Outlook and others deliver to the same mailbox); the old account's stored password and sign-in are removed, the card closes, and the application that waited goes on: the agent registers with that address instead of signing in. The accounts page shows such a site as *Will register again*.
+
+- **A sign-in card offers "Sign in with Google" (or another provider whose sign-in the program holds); the agent uses it**
+
+  When the agent hands a site's sign-in to you, the program reads which "Sign in with ..." buttons the page offers. If it holds your sign-in with one of them (Google, LinkedIn, Microsoft ...), the card offers *Sign in with Google*: from then on the site is worked in the browser that sign-in lives in, and the agent uses the site's own button - no password is typed for that site. Before, the agent knew nothing of the sign-in the program held, and the site was worked in the browser where there was none, so the only way on was signing in by hand.
+
+### Changed
+
+- **An interview from an employer's email is on the calendar, not a to-do: a notice when it arrives and at its reminders**
+
+  An interview an employer's email gives was a card on the to-do page as well as an event on the calendar. It is now on the calendar only, like an event of your own - not on the to-do page, not in its count. When it arrives, and when the employer moves it, a notice tagged *New* appears at the top of the to-do page (your phone is told by the email's own message), and its reminders are notices too; *Got it* puts a notice away and changes nothing else. It can be deleted in its panel on the calendar, with *Undo*. An assessment to finish, documents to send and an offer to answer stay tasks.
+
+- **An item of your own calendar is on the calendar, not a task; its reminder is a notice you put away**
+
+  An event of your own (an interview you put on the calendar by hand or from an email) was also a card on the to-do page, counted among what waits for you, and closing that card deleted the event. It is now on the calendar only - not on the to-do page, not in its count, not in the bots' list of cards. When one of its reminders goes off, the reminder is a notice at the top of the to-do page (and a message on your phone) with *Got it*, which puts the notice away and changes nothing else. An event of your own is deleted in its panel on the calendar, after a question, with *Undo* in the notice; an open one is called *Upcoming*, not *To do*.
+
+- **An assessment from an employer's email is on the calendar only, like an interview; one without a date stays a task**
+
+  An online assessment the employer sends - with its deadline - is now an item of the calendar, as an interview from an email is: a notice when it arrives and at its reminders, marked done on the calendar, and no card on the to-do page. An interview or an assessment whose time the email does not give yet (book a slot, a test with no deadline stated) stays on the to-do page until it has one - before, such an interview was on neither.
+
+### Fixed
+
+- **A button shows that what it started is under way - also after a question**
+
+  An action that asks first ("Send this email?", delete, withdraw - some forty of them) showed nothing on its button once the answer was given: a mail takes seconds to go, and pressing again was the obvious thing to do. The button the question came from now shows it under way and cannot be pressed again; for an item of a row's menu, the menu's button does. A button with a glyph keeps its words, with the spinner where the glyph was. Sending an email says *Sending…* with a spinner, then *Sent*; only a mail that did not go gives the buttons back.
+
+- **A mail you sent is no longer read as one from the employer**
+
+  The program's look through the mailbox searched all of it, the sent mail too: a reply sent for you ("Re: ... Job Application") was taken for the employer asking for more - a notice told you to answer it, a card opened, and a reply to your own mail was drafted. Mail sent from the mailbox, from an address of yours, or by the program is now left out (Gmail's search no longer looks at sent mail and drafts). At the first start of this version, what such mail did before is taken back: its card is closed, a reply drafted to it discarded, a status it moved put back.
+
+- **A browser window handed to you opens maximized, and its page follows the window: a site's check is never off the screen**
+
+  The program's browser drew its page at a fixed size (1366 x 900) even in a window on your screen. With the screen scaled, that page did not fit, and a site's check of the browser ("click all the animal icons"), opened in the page's bottom right corner, was off the screen and out of reach - maximizing the window changed nothing, because the page did not follow it. A window on your screen now opens maximized, and its page is as large as the window and follows it when you resize it. Hidden pages, and the pictures of a page shown in the web page on a server, keep a size of their own.
+
+- **Workday boards are read through their own pages when Workday refuses the program's requests**
+
+  Workday kept refusing this computer's requests ("too many requests" or a security check) whatever their pace, and 2.1.1's answer - rest, and read again at the next scan - left the boards unread for good: every scan's first request was refused, and a restart forgot the rest. Now a refusal is kept across restarts (half an hour, then longer each time, a day at most) and the service is not asked again before then; meanwhile, in the same scan, each board is read through its own page in the program's browser, the way a person reads it - the page asks Workday for its postings, one request every few seconds. A browser check that passes by itself is given the time; one only a person can answer is not answered, and the summary says so. When the hidden browser is refused, the pages open once more in a window, which opens and closes by itself. A board's last page is no longer followed by a request for an empty one.
+
+- **A to-do card whose buttons do not fit in one row breaks onto the next instead of running off the page**
+
+  A card with a field in its row - an email that matched no posting, with its list of applications, *Link to this application* and *Add to my calendar* - ran past the right edge of a narrow window, its last buttons out of reach. Its row was meant to break; a rule of the design system's base styles had kept it on one line.
+
+- **A page left open while AutoApply was updated loads the new version instead of showing the old one**
+
+  After an update the program starts again with the new version, but a page that was open kept showing the earlier one until it was reloaded by hand - what the update brought was not there. The page now notices that the program serves another version: it loads the new one when you open another page, or by itself while it is not being looked at (unless something has been typed in it), and meanwhile a notice says so with *Reload now*.
+
+- **Sources and watched employers stands out on the postings page again**
+
+  It had been made a prominent button because it was easy to miss, and the design system of 2.1.0 turned it into a quiet text button. It is now an emphasised secondary button - a pale ground in the main colour - beside the main action, *Scan for new postings*; the design system has this kind of button (*tonal*, at most one in a group).
+
+- **Where a file went takes one line, in words; the preview keeps its room**
+
+  A file sent with many applications listed every one of them in its panel, each with the form field it was given to as the agent recorded it - often the selector it used ("input[type=file]", "@label:Upload Resume", 'button:has-text("Upload transcript")') and its own notes in brackets - and the preview was pushed to the bottom. The panel now shows the first on one line, with *All N* to see the rest in a short scrolling list; one application is one line, with the fields it was given to; a field is named in its words, and a selector without words is left out.
+
+- **Gmail is read through the proxy set in the program, and a check that cannot reach it says so**
+
+  Gmail was always read with a direct connection, whatever the proxy setting said: the library it is read with needs one more package to use a proxy, and without it ignores the proxy without a word. Where Google is reached only through a proxy, mail stopped being read - while everything else worked - and each check said the site might be under maintenance. Gmail now goes the way Settings → System and data → Network connection says (the system's proxy, your own, or none), and a check that cannot reach Gmail says that, pointing to where the connection can be tested.
+
+### Known limits
+
+- Signing in to a site with Google from its card, and Workday boards read through their own pages, are unit-tested; neither has been seen on a real site yet.
+
 ## [2.1.1] - 2026-11-23
 
 2.1.1 sorts a posting's field into one fixed list - a field and a specialty, named in your language - instead of
@@ -1556,6 +1631,7 @@ Why it was rewritten, and what is done differently, is in the README under *What
 - The macOS and Linux packages are exercised by CI only.
 - The English interface is machine-translated.
 
+[2.1.2]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.1.2
 [2.1.1]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.1.1
 [2.1.0]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.1.0
 [2.0.2]: https://github.com/Liam-Frost/AutoApply/releases/tag/v2.0.2
