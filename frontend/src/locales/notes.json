@@ -542,7 +542,7 @@
   "analytics.run.notRecorded": "On the analytics page.",
   "analytics.run.couldNotReadThe": "On the analytics page.",
   "analytics.sites.notesTheAgentKeeps": "On the analytics page.",
-  "analytics.sites.withEveryApplicationThe": "On the analytics page.",
+  "analytics.sites.withEveryApplicationThe": "Help of the site notes card (analytics).",
   "analytics.sites.website": "On the analytics page.",
   "analytics.sites.scope": "On the analytics page.",
   "analytics.sites.notes": "On the analytics page.",
@@ -3277,5 +3277,12 @@
   "settings.mailbox.spanTo": "Date field: end of the span (inclusive); empty means until now.",
   "settings.mailbox.readThisSpan": "Button: read the mail of the chosen dates.",
   "settings.mailbox.readingFrom": "Toast after asking to read past mail. {from} is a date.",
-  "settings.mailbox.readingSpan": "Toast after asking to read a span of past mail."
+  "settings.mailbox.readingSpan": "Toast after asking to read a span of past mail.",
+  "analytics.auto.whatTheyWaitedFor": "Sub-heading in 'How each run ended' (analytics, automation): the runs that ended 'stopped for you', by what they waited for.",
+  "analytics.sites.howItIsWorked": "Heading of the account a site's notes were distilled into by the model (sites page). {day} is a date.",
+  "analytics.sites.yourWording": "After the heading above when the applicant edited the account.",
+  "analytics.sites.editIt": "Button: edit the distilled account of how a site is worked.",
+  "analytics.sites.notesThatWentIn": "Collapsible list under the distilled account: the agent's notes it was written from (plural form).",
+  "analytics.sites.notedSince": "Heading of the notes written after the account was distilled.",
+  "analytics.sites.wordingSaved": "Toast after the applicant saved their wording of how a site is worked."
 }

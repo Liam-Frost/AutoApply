@@ -50,6 +50,14 @@ def _directions(t: Task) -> dict[str, Any]:
     return out
 
 
+@handler("notes")
+def _notes(t: Task) -> dict[str, Any]:
+    """A site's notes, many by now: written into one account of how it is worked (sites.distill)."""
+    from . import sites
+
+    return sites.distill(str((t.payload or {}).get("key") or t.ref))
+
+
 @handler("apply")
 def _apply(t: Task) -> dict[str, Any]:
     """One application, worked by the agent from the posting to the confirmation - or as far as this run gets

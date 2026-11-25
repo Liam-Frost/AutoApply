@@ -26,6 +26,7 @@ TASK = {
     "discover": T("server.humanize.scanForNewJobs"), "score": T("server.humanize.scoreJobs"), "apply": T("server.humanize.workingThisApplication"), "recon": T("server.humanize.readApplicationFormsCreate"), "scout": T("server.humanize.readingTheLaterSteps"), "tailor": T("server.humanize.tailorRSumTo"), "revise": T("server.humanize.reviseDraftWithYour"), "reanswer": T("server.humanize.reAnswerTheDrafts"),
     "execute": T("server.humanize.fillInAndSubmit"), "mail": T("server.humanize.checkYourEmail"), "canary": T("server.humanize.selfCheck"), "site_status": T("server.humanize.checkApplicationStatusOn"), "profile_init": T("server.humanize.createProfileFromR"), "mail_reply": T("server.humanize.writeAReply"), "cover_letter": T("server.humanize.writeCoverLetter"),
     "directions": T("server.humanize.sortPostingsIntoFields"),
+    "notes": T("server.humanize.distillSiteNotes"),
 }
 TASK_STATUS = {"queued": (T("server.humanize.queued"), ""), "running": (T("server.humanize.inProgress"), "info"), "done": (T("server.humanize.done"), "ok"), "failed": (T("server.humanize.unfinished"), "bad"), "waiting_human": (T("server.humanize.needsYou"), "warn"),
                "held": (T("server.humanize.setAside"), ""), "cancelled": (T("server.humanize.cancelled"), "")}

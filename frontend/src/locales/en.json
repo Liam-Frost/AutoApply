@@ -490,7 +490,8 @@
       "showAllRuns": "Show all {p0} runs",
       "theLastRunsClick": "The last {p0} runs. Click a row to see every model request it made.",
       "text": "{p0}×",
-      "filledInAndWaiting": "filled in and waiting for you to submit {p0}; Submit pressed, outcome not known {p1}; waiting for you (sign-in, verification) {p2}; run again in a visible window {p3}; in progress {p4}"
+      "filledInAndWaiting": "filled in and waiting for you to submit {p0}; Submit pressed, outcome not known {p1}; waiting for you (sign-in, verification) {p2}; run again in a visible window {p3}; in progress {p4}",
+      "whatTheyWaitedFor": "Of the runs that stopped for you, what they waited for"
     },
     "apps": {
       "applicationsSubmitted": "applications submitted",
@@ -588,7 +589,7 @@
     },
     "sites": {
       "notesTheAgentKeeps": "Notes the agent keeps about sites",
-      "withEveryApplicationThe": "With every application the agent writes down what is worth knowing about the site the next time: how its controls work, what its résumé parser gets wrong, where the next step hides. It reads this first when it is on the same site again. Notes about a whole recruiting system hold for every employer on it. Click a row to read them.",
+      "withEveryApplicationThe": "With every application the agent writes down what is worth knowing about the site the next time: how its controls work, what its résumé parser gets wrong, where the next step hides. Once there are a dozen notes, they are written into one account of how the site is worked (you can reword it); what holds for the whole recruiting system goes to that system's notes. The agent reads all this first when it is on the same site again. Click a row to read them.",
       "website": "Website",
       "scope": "Scope",
       "notes": "Notes",
@@ -600,7 +601,13 @@
       "clearTheNotesAbout": "Clear the notes about this site?",
       "theAgentWillFind": "The agent will find its way around this site anew next time. The session and the saved account are not affected.",
       "theWholeRecruitingSystem": "The whole recruiting system",
-      "thisSiteOnly": "This site only"
+      "thisSiteOnly": "This site only",
+      "howItIsWorked": "How this site is worked - distilled from the notes on {day}",
+      "yourWording": "in your words",
+      "editIt": "Edit",
+      "notesThatWentIn": "The note that went into it | The {n} notes that went into it",
+      "notedSince": "Noted since",
+      "wordingSaved": "Saved - the agent reads it from the next application on"
     },
     "page": {
       "theDataForThis": "Could not load this page’s data",

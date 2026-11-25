@@ -82,6 +82,12 @@ def _start_up() -> None:
             tasks.enqueue("mail", ref="history", payload={"history": True}, priority=150)
     except Exception:  # noqa: BLE001 - never a reason not to start
         logging.getLogger("autoapply").exception("could not queue the reading back of the mail")
+    try:      # sites with many notes from before they were distilled: distilled, in the background
+        from .. import sites as _sites
+
+        _sites.queue_due()
+    except Exception:  # noqa: BLE001 - never a reason not to start
+        logging.getLogger("autoapply").exception("could not queue the distilling of the sites' notes")
     try:      # every start: confirmations read while an application was taken for unsent; cards of applications that are sent
         from .. import lifecycle as _lifecycle
 
@@ -2986,6 +2992,15 @@ def site_one(key: str) -> dict[str, Any]:
     """Everything the program knows about one site."""
     from .. import sites
 
+    return sites.about(key)
+
+
+@app.put("/api/sites/{key:path}/digest")
+def site_digest(key: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The applicant's own wording of how a site is worked; empty: the account goes, the lines stay."""
+    from .. import sites
+
+    sites.set_digest(key, str(body.get("text") or ""))
     return sites.about(key)
 
 
