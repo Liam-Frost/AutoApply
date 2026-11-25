@@ -119,3 +119,28 @@ def test_called_off_whole_day_rescheduled_and_all_read(app_env):
     reminders.from_mail(late, "Acme · Co-op 14", "interview", "new", "Interview", {"due": (now - timedelta(hours=2)).isoformat(timespec="minutes")}, "c6")
     checkin.ask_due(now)
     assert all(t["category"] != "info" for t in cards()) and cards()
+
+
+def test_an_answer_is_about_the_time_the_card_asked_about_even_when_the_item_moved_since(app_env):
+    """Review: an unanswered card, then the employer moves the interview: the answer is kept for the first time, the
+    item is not marked done, and the new time is asked about once it has passed."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import checkin, clock, db, reminders
+    from autoapply.api.main import app
+    from autoapply.models import Todo
+
+    db.set_setting("time.zone", "UTC")
+    now = clock.now().replace(second=0, microsecond=0)
+    c = TestClient(app)
+    a = _application(21)
+    first = (now - timedelta(hours=3)).isoformat(timespec="minutes")
+    iv = reminders.from_mail(a, "Acme · Co-op 21", "interview", "new", "Interview", {"due": first}, "r1")
+    checkin.ask_due(now)
+    card = next(t for t in c.get("/api/todos").json() if t["kind"] == "checkin")
+    reminders.from_mail(a, "Acme · Co-op 21", "interview", "changed", "Moved", {"due": (now + timedelta(days=1)).isoformat(timespec="minutes")}, "r2")
+    c.post(f"/api/todos/{card['id']}/checkin", json={"done": False})
+    with db.session() as s:
+        item = s.get(Todo, iv)
+        assert item.status == "open" and item.payload["checkin"]["for"] == first
+    assert checkin.ask_due(now + timedelta(days=1, hours=2)) == 1                                     # the new time: asked

@@ -39,7 +39,7 @@ def ask_due(at: datetime | None = None) -> int:
         end = due + timedelta(days=1) if p.get("date_only") or p.get("all_day") else due + wait
         if not (end <= here <= end + RECENT):
             continue
-        notify.add_todo(KIND, title, body="", ref=f"{KIND}:{tid}", payload={"item_id": tid, "category": p["category"], "application_id": p.get("application_id")})
+        notify.add_todo(KIND, title, body="", ref=f"{KIND}:{tid}", payload={"item_id": tid, "category": p["category"], "application_id": p.get("application_id"), "for": when})
         with db.session() as s:
             t = s.get(Todo, tid)
             t.payload = {**(t.payload or {}), "checkin_asked": when}
@@ -60,11 +60,13 @@ def answer(card_id: int, *, done: bool, feeling: str = "", note: str = "") -> di
         if item is None:
             raise KeyError(card_id)
         cat = str((item.payload or {}).get("category") or p.get("category") or "")
-        said = {"done": bool(done), "feeling": feeling, "note": str(note or "").strip()[:500], "at": now().isoformat(),
-                "for": item.due_at.isoformat(timespec="minutes") if item.due_at else ""}
+        # (the occurrence the card asked about - the item may have been moved since: the answer is about that one)
+        current = item.due_at.isoformat(timespec="minutes") if item.due_at else ""
+        asked = str(p.get("for") or current)
+        said = {"done": bool(done), "feeling": feeling, "note": str(note or "").strip()[:500], "at": now().isoformat(), "for": asked}
         # (the latest answer, and every answer of the item - one for each time it was to take place)
         item.payload = {**(item.payload or {}), "checkin": said, "checkins": [*((item.payload or {}).get("checkins") or []), said]}
-        if done and item.status == "open":
+        if done and item.status == "open" and asked == current:      # (moved since: the new date is still ahead)
             item.status, item.done_at = "done", now()
         moved = False
         app_id = (item.payload or {}).get("application_id") or p.get("application_id")
