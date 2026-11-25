@@ -77,6 +77,11 @@ def _start_up() -> None:
             tasks.enqueue("directions", ref="unsorted", priority=180)
     except Exception:  # noqa: BLE001 - never a reason not to start; they are sorted at the next start
         logging.getLogger("autoapply").exception("could not queue the sorting of the postings' fields")
+    try:      # the mail from before the program read it - back to before the first application - once, in the background
+        if mail.back_due() is not None:
+            tasks.enqueue("mail", ref="history", payload={"history": True}, priority=150)
+    except Exception:  # noqa: BLE001 - never a reason not to start
+        logging.getLogger("autoapply").exception("could not queue the reading back of the mail")
     try:      # sites with many notes from before they were distilled: distilled, in the background
         from .. import sites as _sites
 
@@ -3470,11 +3475,49 @@ def discord_test() -> dict[str, Any]:
     return {"ok": True}
 
 
+def _reading_back() -> bool:
+    """Is mail being read back right now (or waiting to be)?"""
+    from ..models import Task
+
+    with db.session() as s:
+        return s.query(Task).filter(Task.kind == "mail", Task.ref.like("history%"), Task.status.in_(("queued", "running"))).count() > 0
+
+
+@app.post("/api/mailbox/read-back")
+def mailbox_read_back(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Read the mail of a span as history: {since?, until?} (days, "2026-09-01"); without since, from the first
+    application still in play. Queued: the mail is read in the background."""
+    from datetime import date as _date, timedelta as _td
+
+    from .. import mail as _mail
+
+    try:
+        since = _date.fromisoformat(str(body["since"])) if body.get("since") else None
+        until = _date.fromisoformat(str(body["until"])) + _td(days=1) if body.get("until") else None      # (the last day included)
+    except ValueError as e:
+        raise HTTPException(400, T("server.api.main.theDateIsNot")) from e
+    if since is None:
+        first = _mail.read_back_from()
+        if first is None:
+            raise HTTPException(400, T("server.api.main.noOpenApplication"))
+        since = first.date()
+    if until is not None and until <= since:
+        raise HTTPException(400, T("server.api.main.theDateIsNot"))
+    tid = tasks.enqueue("mail", ref=f"history:{since}:{until or ''}", payload={"history": True, "since": since.isoformat(), **({"until": until.isoformat()} if until else {})},
+                        priority=40, dedupe=True)
+    return {"task_id": tid, "since": since.isoformat(), "until": (until - _td(days=1)).isoformat() if until else ""}
+
+
 @app.get("/api/mailbox")
 def mailbox_state() -> dict[str, Any]:
     from .. import mailbox
 
-    return {**mailbox.status(), "presets": [{"key": k, "name": v["name"], "host": v["host"], "port": v["port"], "how": v["how"], "oauth": bool(v.get("oauth"))} for k, v in mailbox.PRESETS.items()]}
+    from .. import mail as _mail
+
+    first = _mail.read_back_from()
+    back = {"read_to": str(db.get_setting(_mail.READ_BACK) or ""), "first_open": first.date().isoformat() if first else "",
+            "reading": _reading_back()}
+    return {**mailbox.status(), "read_back": back, "presets": [{"key": k, "name": v["name"], "host": v["host"], "port": v["port"], "how": v["how"], "oauth": bool(v.get("oauth"))} for k, v in mailbox.PRESETS.items()]}
 
 
 @app.post("/api/mailbox/outlook/authorize")
