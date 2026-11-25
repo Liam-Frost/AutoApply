@@ -3,7 +3,7 @@ import { t as T } from '../i18n/catalog'
 // One application, its only home (plan §8.4): where it stands and whose move it is, with what can be done now - and
 // everything that can be done under "More"; then the record (every answer), the agent, the materials, the mail, the
 // whole story and the posting. What was the draft page is the record here (RecordPanel).
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 import AgentJournal from '../components/AgentJournal.vue'
@@ -21,6 +21,7 @@ import Trunc from '../components/Trunc.vue'
 import { deadlineLabel, parseDeadline } from '../dates'
 import { renderMarkdown } from '../md'
 import { ask, fmtTime, run, toast } from '../ui'
+import ActivityTimeline from '../components/ActivityTimeline.vue'
 import { asDate, dateTimeOf, dayText, stampDay } from '../i18n/format'
 import { dirLabel } from '../directions'
 
@@ -56,6 +57,13 @@ const firstTab = () => {
   return a.value && a.value.mails.length ? 'mail' : 'timeline'
 }
 function openTab(k) { tab.value = k; router.replace({ hash: '#' + k }) }
+// (from the time line: the mail on its own tab, brought into view and marked)
+const pickedMail = ref('')
+function showMail(id) {
+  pickedMail.value = id
+  openTab('mail')
+  nextTick(() => { const el = document.getElementById('mail-' + id); if (el) el.scrollIntoView({ block: 'center' }) })
+}
 watch(() => route.hash, () => { const h = (route.hash || '').slice(1); if (TABS.includes(h)) tab.value = h })
 const tabCount = (k) => (!a.value ? 0 : k === 'mail' ? a.value.mails.length : k === 'materials' ? a.value.materials.length : k === 'timeline' ? a.value.timeline.length : 0)
 
@@ -329,7 +337,7 @@ onMounted(async () => { await load(); tab.value = firstTab() })
     <section v-else-if="tab === 'mail'">
       <div class="card">
         <template v-if="a.mails.length">
-          <div v-for="m in a.mails" :key="m.message_id" class="mail-row">
+          <div v-for="m in a.mails" :id="'mail-' + m.message_id" :key="m.message_id" class="mail-row" :class="{ picked: pickedMail === m.message_id }">
             <div class="mail-head">
               <Status :tone="m.is_evidence ? 'ok' : ''" :label="m.label" />
               <Trunc class="t-primary mail-subject" :text="m.subject" />
@@ -358,16 +366,8 @@ onMounted(async () => { await load(); tab.value = firstTab() })
 
     <section v-else-if="tab === 'timeline'">
       <div class="card">
-        <div v-for="(e, i) in a.timeline" :key="i" class="tl-row">
-          <span class="t-meta num atomic tl-when">{{ fmtTime(e.at) }}</span>
-          <span v-if="e.kind === 'status'" class="tl-what">
-            <template v-if="e.old !== e.new">{{ e.old || $t('application.created') }} → <span class="t-primary">{{ e.new }}</span></template><template v-else>{{ e.note }}</template>
-            <span v-if="e.by" class="muted">{{ $t('application.by', { who: e.by }) }}</span><span v-if="e.note && e.old !== e.new" class="muted"> {{ e.note }}</span>
-          </span>
-          <span v-else-if="e.kind === 'run'" class="tl-what">{{ e.what }}: <span :class="e.ok ? '' : 'muted'">{{ e.ok ? $t('application.runDone') : $t('application.runNotDone') }}</span><span v-if="e.said" class="muted" data-notr> {{ e.said }}</span> <router-link to="/runs" class="muted">{{ $t('application.runRecord') }}</router-link></span>
-          <span v-else class="tl-what">{{ $t('application.mailEvent', { label: e.label }) }} <span class="muted">{{ e.subject }}</span></span>
-        </div>
-        <div v-if="!a.timeline.length" class="muted">{{ $t('application.noTimeline') }}</div>
+        <ActivityTimeline v-if="a.timeline.length" :events="a.timeline" @open-mail="showMail" />
+        <div v-else class="muted">{{ $t('application.noTimeline') }}</div>
       </div>
     </section>
 

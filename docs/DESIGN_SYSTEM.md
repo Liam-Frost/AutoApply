@@ -133,6 +133,7 @@
 | 数据状态 | `dataState(read)` + `<DataState :s="st" what @retry>`（`src/data.js`） | 页面读数据的四种状态，见下面“读数据的页面” |
 | 动作 | `run(fn, okText, after, { name, form })`（`src/ui.js`） | 所有会改东西的按钮都走它，见下面“做一件事的按钮” |
 | 轻提示 | `toast(text, tone, { to, link })` / `{ act, link }` / `stay`（`src/ui.js`） | 轻量的结果（“已保存”“已排队”）；`act` 给一个就地的操作（撤销），`stay` 让它留到被关掉（程序已更新、页面还是旧版本：`src/fresh.js`）。不是唯一的结果出口：表单的错误留在表单上，读不到数据由页面自己说 |
+| 时间线 | `ActivityTimeline`（`src/components/ActivityTimeline.vue`，样式在 `styles/patterns.css` 的 `.atl`） | 一份申请发生过的事：按天分组，左边时间、中间一条连续的线和节点、右边标题与一两行摘要。事件种类来自记录本身（阶段的键、邮件的类别与事件），不靠关键词猜；推进申请的事（阶段、邀请、测评、Offer、补材料、拒信）用语义色节点和加粗标题，普通邮件和 Agent 运行保持安静。有更多内容的事件点开就地展开，邮件可跳到“邮件”页。不要给每条事件一张大卡片 |
 | 表单错误 | `<FormError name>` | 配合 `run(..., { form: name })`：上一次提交被拒绝的原因留在按钮旁边，直到再次提交 |
 | 口径说明 | `<Explain label>文字</Explain>` | 一个数字怎么算的。能点开（鼠标、键盘、触屏都行），不要只放在 `title` 里 |
 | 设置小节 | `<SetSection id title how>` | 设置页的一节：有地址（`/settings/<组>/<id>`），标题旁写明怎么保存（`how`: `top` 右上角 / `own` 自己的按钮 / `now` 立即生效 / 空） |

@@ -2292,7 +2292,6 @@
   "application.runDone": "Result of a run.",
   "application.runNotDone": "Result of a run.",
   "application.runRecord": "Link to the run's record.",
-  "application.mailEvent": "Story entry.",
   "application.noTimeline": "Empty state.",
   "application.job.term": "Fact label.",
   "application.job.months": "Fact label.",
@@ -3273,5 +3272,15 @@
   "analytics.sites.editIt": "Button: edit the distilled account of how a site is worked.",
   "analytics.sites.notesThatWentIn": "Collapsible list under the distilled account: the agent's notes it was written from (plural form).",
   "analytics.sites.notedSince": "Heading of the notes written after the account was distilled.",
-  "analytics.sites.wordingSaved": "Toast after the applicant saved their wording of how a site is worked."
+  "analytics.sites.wordingSaved": "Toast after the applicant saved their wording of how a site is worked.",
+  "application.tl.today": "Day heading in an application's time line.",
+  "application.tl.yesterday": "Day heading in an application's time line.",
+  "application.tl.noDate": "Day heading for events recorded without a time.",
+  "application.tl.toStage": "Time line: the application moved to a stage. {to} is the stage's name.",
+  "application.tl.fromStage": "Second line of a stage change: the stage before.",
+  "application.tl.subject": "Time line, an e-mail opened: its subject.",
+  "application.tl.sender": "Time line, an e-mail opened: who sent it.",
+  "application.tl.said": "Time line, an e-mail opened: the summary of what it says.",
+  "application.tl.showMail": "Button: open the e-mail on the application's Mail tab.",
+  "application.tl.otherMail": "Time line: an e-mail linked to the application that is not an invitation, a request, an offer or a decision."
 }

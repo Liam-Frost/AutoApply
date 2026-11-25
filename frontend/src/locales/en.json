@@ -2938,7 +2938,6 @@
     "runDone": "done",
     "runNotDone": "not finished",
     "runRecord": "record",
-    "mailEvent": "Email: {label}",
     "noTimeline": "Nothing recorded yet.",
     "job": {
       "term": "Term",
@@ -2955,7 +2954,19 @@
       "more": "Show more",
       "less": "Show less"
     },
-    "tabsLabel": "Parts of the application"
+    "tabsLabel": "Parts of the application",
+    "tl": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "noDate": "No date",
+      "toStage": "Moved to {to}",
+      "fromStage": "from {from}",
+      "subject": "Subject",
+      "sender": "From",
+      "said": "What it says",
+      "showMail": "Show in Mail",
+      "otherMail": "An email about it"
+    }
   },
   "applications": {
     "title": "Applications",
