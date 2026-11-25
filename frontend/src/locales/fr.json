@@ -1330,7 +1330,18 @@
       "emailSettingsSaved": "Réglages de messagerie enregistrés",
       "fileSavedNowClick": "Fichier enregistré, cliquez maintenant sur « Autoriser »",
       "theBrowserIsOpen": "Le navigateur est ouvert : terminez l’autorisation Google là-bas, en cochant toutes les autorisations listées",
-      "removeAccessAsk": "Retirer l’autorisation Outlook ? Le programme ne pourra plus lire cette boîte mail tant que vous ne l’autorisez pas de nouveau."
+      "removeAccessAsk": "Retirer l’autorisation Outlook ? Le programme ne pourra plus lire cette boîte mail tant que vous ne l’autorisez pas de nouveau.",
+      "mailFromBefore": "Le courrier d’avant",
+      "mailFromBeforeHelp": "En temps normal, seul le courrier nouveau est lu. Le courrier d’avant - les réponses aux candidatures faites plus tôt - est lu ici comme historique : il va sur les candidatures, daté de son arrivée, sans avis ni carte pour ce qui est passé. Le courrier déjà lu ne l’est pas à nouveau.",
+      "readBackTo": "Relu jusqu’au {day}",
+      "notReadBackYet": "Le courrier d’avant n’a pas encore été lu",
+      "readingNow": "lecture en cours",
+      "readFromFirstOpen": "Lire depuis la première candidature ouverte ({day})",
+      "spanFrom": "Du",
+      "spanTo": "Au (vide : jusqu’à maintenant)",
+      "readThisSpan": "Lire cette période",
+      "readingFrom": "Le courrier depuis le {from} est en cours de lecture",
+      "readingSpan": "Le courrier du {from} au {to} est en cours de lecture"
     },
     "access": {
       "whereAutoapplyCanBe": "D’où AutoApply peut être ouvert",

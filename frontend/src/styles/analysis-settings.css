@@ -298,3 +298,6 @@ input.w-num { width: 96px; } input.w-time { width: 124px; } input.w-short { widt
 .an-view .card .empty.line svg { flex: none; align-self: center; width: 16px; height: 16px; margin: 0; color: var(--text-3); }
 .an-view .card .empty.line .t { margin: 0; color: var(--text); font-size: var(--fs-md); font-weight: var(--fw-medium); }
 .an-view .card .empty.line > div:not(.t) { color: var(--text-2); font-size: var(--fs-sm); }
+.read-back { margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--border); }
+.read-back .actions { margin-top: var(--s2); flex-wrap: wrap; }
+.read-back .back-span input { width: auto; }

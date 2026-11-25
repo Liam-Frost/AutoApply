@@ -240,6 +240,7 @@
  "server.api.main.microsoftWebsite": "Microsoft website",
  "server.api.main.newPostingsToScore": "New postings to score",
  "server.api.main.noAiServiceSpecified": "No AI service specified",
+ "server.api.main.noOpenApplication": "There is no application that is not put away yet: choose the dates to read.",
  "server.api.main.noSuchAccount": "No account is on record for this site",
  "server.api.main.noSuchApplication": "No such application",
  "server.api.main.noTailoredRSum": "No tailored résumé for this posting yet",

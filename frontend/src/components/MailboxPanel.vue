@@ -84,6 +84,12 @@ function gmailClient(ev) {
   run(() => api.upload('/settings/gmail-client', fd), T('settings.mailbox.fileSavedNowClick'), load)
 }
 const gmailAuth = () => run(() => api.post('/settings/gmail-authorize'), T('settings.mailbox.theBrowserIsOpen'), load)
+// Mail from before: read as history (on the applications, nothing announced) - from the first application still in
+// play, or a span chosen here
+const backFrom = ref('')
+const backTo = ref('')
+const readBack = (span) => run(() => api.post('/mailbox/read-back', span ? { since: backFrom.value, until: backTo.value || undefined } : {}),
+  (r) => (r.until ? T('settings.mailbox.readingSpan', { from: r.since, to: r.until }) : T('settings.mailbox.readingFrom', { from: r.since })), load)
 onMounted(load)
 </script>
 
@@ -141,6 +147,19 @@ onMounted(load)
       <button class="primary" :disabled="busy || (pick !== 'gmail_api' && !form.user)" @click="save"><Icon name="check" />{{ inUse ? $t('settings.mailbox.save') : $t('settings.mailbox.saveAndSwitchTo') }}</button>
       <Status v-if="dirty" tone="warn" :label="$t('settings.page.unsavedChanges')" />
       <span v-if="result" class="result" :class="result.ok ? 'ok' : 'bad'" role="status">{{ result.text }}</span>
+    </div>
+    <div v-if="d.ready" class="read-back">
+      <div class="t-meta">{{ $t('settings.mailbox.mailFromBefore') }} <HelpPop :text="$t('settings.mailbox.mailFromBeforeHelp')" /></div>
+      <p class="t-secondary small">{{ d.read_back.read_to ? $t('settings.mailbox.readBackTo', { day: d.read_back.read_to }) : $t('settings.mailbox.notReadBackYet') }}<template v-if="d.read_back.reading"> · {{ $t('settings.mailbox.readingNow') }}</template></p>
+      <div class="actions">
+        <button v-if="d.read_back.first_open" type="button" :disabled="d.read_back.reading" @click="readBack(false)"><Icon name="mail" />{{ $t('settings.mailbox.readFromFirstOpen', { day: d.read_back.first_open }) }}</button>
+      </div>
+      <div class="actions back-span">
+        <input v-model="backFrom" type="date" :aria-label="$t('settings.mailbox.spanFrom')" />
+        <span class="t-secondary">–</span>
+        <input v-model="backTo" type="date" :aria-label="$t('settings.mailbox.spanTo')" />
+        <button type="button" :disabled="!backFrom || d.read_back.reading || (backTo && backTo < backFrom)" @click="readBack(true)">{{ $t('settings.mailbox.readThisSpan') }}</button>
+      </div>
     </div>
     <p class="set-note">{{ $t('settings.page.howOftenTheMailbox') }}<router-link to="/settings/automation/schedule">{{ $t('settings.page.plan') }}</router-link>{{ $t('settings.page.text') }}</p>
   </div>

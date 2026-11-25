@@ -240,6 +240,7 @@
  "server.api.main.microsoftWebsite": "Said by the program (api/main.py).",
  "server.api.main.newPostingsToScore": "Said by the program (api/main.py).",
  "server.api.main.noAiServiceSpecified": "Said by the program (api/main.py).",
+ "server.api.main.noOpenApplication": "Said by the program (api/main.py): reading past mail from the first open application, when there is none.",
  "server.api.main.noSuchAccount": "Said by the program (api/main.py): an error when the Site accounts page asks to clear the session or remove the password of an account that no longer exists.",
  "server.api.main.noSuchApplication": "Said by the program (api/main.py).",
  "server.api.main.noTailoredRSum": "Said by the program (api/main.py).",
