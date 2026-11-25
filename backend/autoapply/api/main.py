@@ -1389,6 +1389,17 @@ def todo_to_calendar(todo_id: int) -> dict[str, Any]:
     return {"id": tid, "start": when["start"], "all_day": when["all_day"], "existing": False}
 
 
+@app.post("/api/todos/{todo_id}/checkin")
+def todo_checkin(todo_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """After an interview or an assessment: {done, feeling: good|ok|bad|"", note} (checkin.py)."""
+    from .. import checkin
+
+    try:
+        return checkin.answer(todo_id, done=bool(body.get("done")), feeling=str(body.get("feeling") or ""), note=str(body.get("note") or ""))
+    except KeyError:
+        raise HTTPException(404, "not-found") from None
+
+
 @app.post("/api/todos/{todo_id}/reopen")
 def todo_reopen(todo_id: int) -> dict[str, Any]:
     """Undo the closing of a card, right after it ("Undo" in the notice): open again with its date - an item of the

@@ -280,6 +280,7 @@ def llm_switched(frm: str, to: str, why: str, until: str) -> Card:
 
 # kind -> (icon, heading, hint)
 TODO = {
+    "checkin": ("📝", T("server.messages.howDidItGo"), T("server.messages.howDidItGoHint")),
     "answer": ("✍️", T("server.messages.someQuestionsNeedYour"), T("server.messages.theFormNeedsThis")),
     "review": ("📝", T("server.messages.theRecordOfThe"), T("server.messages.lookOverWhatThe")),
     "takeover": ("🔐", T("server.messages.youNeedToSign"), T("server.messages.inYourToDos")),

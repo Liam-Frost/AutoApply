@@ -374,7 +374,7 @@ def _backlog(s: Any, w: Window) -> dict[str, Any]:
 
 
 TODO_KINDS = {"answer": T("server.analytics.answerQuestions"), "review": T("server.analytics.approveARecord"), "confirm": T("server.analytics.confirm"), "code": T("server.analytics.code"), "resume": T("server.analytics.continueAnApplication"), "submit": T("server.analytics.submitYourself"), "failed": T("server.analytics.didNotGetThrough"),
-              "config": T("server.analytics.settings"), "mail_unmatched": T("server.analytics.whichApplicationAMail"), "followup": T("server.analytics.interviewAssessment"), "gone": T("server.analytics.postingTakenDown"), "login": T("server.analytics.signIn"), "facts_changed": T("server.analytics.profileChanged"),
+              "config": T("server.analytics.settings"), "mail_unmatched": T("server.analytics.whichApplicationAMail"), "followup": T("server.analytics.interviewAssessment"), "checkin": T("server.analytics.howItWent"), "gone": T("server.analytics.postingTakenDown"), "login": T("server.analytics.signIn"), "facts_changed": T("server.analytics.profileChanged"),
               "mail_out": T("server.analytics.readAMailBefore"), "takeover": T("server.analytics.signIn"), "blocked": T("server.analytics.siteTheProgramCannot"), "captcha": T("server.analytics.humanCheck"),
               # cards of the program before 2.0, still in the record: a site's form had changed and its reading was repaired
               "driver": T("server.analytics.siteFormChanged"), "driver_patch": T("server.analytics.siteFormChanged"),

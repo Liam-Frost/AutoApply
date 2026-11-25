@@ -211,3 +211,9 @@ button.atl-head:focus-visible { outline: 2px solid var(--focus); outline-offset:
 .src-error { display: flex; flex-direction: column; gap: var(--s1); margin-bottom: var(--s2); font-size: var(--fs-sm); }
 .src-foot { margin-top: var(--s2); }
 .bad-text { color: var(--bad); }
+
+/* after an interview or an assessment (to-do card): how it went - three choices in one row, then a word of their own */
+.checkin-feel { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: var(--s2); }
+.checkin-feel .seg { display: inline-flex; gap: 4px; }
+.checkin-feel .seg button.on { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+.checkin-feel input { min-width: 200px; flex: 1 1 220px; }

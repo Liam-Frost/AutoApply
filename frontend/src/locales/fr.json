@@ -185,7 +185,22 @@
     "registeringAgain": "L’agent va créer un nouveau compte sur ce site et poursuivre la candidature.",
     "registerAgainMenu": "Créer un nouveau compte…",
     "signInWithProvider": "Se connecter avec {provider}",
-    "signsInWith": "Ce site se connecte désormais avec {provider} : l’agent reprend la candidature"
+    "signsInWith": "Ce site se connecte désormais avec {provider} : l’agent reprend la candidature",
+    "checkin": {
+      "askInterview": "L’heure est passée. L’entretien a-t-il eu lieu ? Le dire fait avancer la candidature, et votre ressenti est gardé pour vos analyses.",
+      "askAssessment": "L’échéance est passée. Avez-vous fait l’évaluation ? Le dire fait avancer la candidature, et votre ressenti est gardé pour vos analyses.",
+      "hadIt": "Il a eu lieu",
+      "hadNot": "Il n’a pas eu lieu",
+      "didIt": "Je l’ai faite",
+      "didNot": "Je ne l’ai pas faite",
+      "howWasIt": "Comment ça s’est passé ?",
+      "good": "Bien",
+      "ok": "Moyennement",
+      "bad": "Pas bien",
+      "notePlaceholder": "Un mot pour plus tard (facultatif)",
+      "noted": "Noté : la candidature est à jour",
+      "notedNot": "Noté"
+    }
   },
   "language": {
     "beta": "{name} (bêta)"
@@ -2965,7 +2980,11 @@
       "sender": "De",
       "said": "Ce qu’il dit",
       "showMail": "Voir dans Courriels",
-      "otherMail": "Un courriel à ce sujet"
+      "otherMail": "Un courriel à ce sujet",
+      "interview": "l’entretien",
+      "assessment": "l’évaluation",
+      "checkedDone": "Fait : {what}",
+      "checkedNot": "N’a pas eu lieu : {what}"
     }
   },
   "applications": {

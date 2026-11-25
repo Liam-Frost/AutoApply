@@ -3282,5 +3282,22 @@
   "application.tl.sender": "Time line, an e-mail opened: who sent it.",
   "application.tl.said": "Time line, an e-mail opened: the summary of what it says.",
   "application.tl.showMail": "Button: open the e-mail on the application's Mail tab.",
-  "application.tl.otherMail": "Time line: an e-mail linked to the application that is not an invitation, a request, an offer or a decision."
+  "application.tl.otherMail": "Time line: an e-mail linked to the application that is not an invitation, a request, an offer or a decision.",
+  "todos.checkin.askInterview": "Body of the card after an interview's time.",
+  "todos.checkin.askAssessment": "Body of the card after an assessment's deadline.",
+  "todos.checkin.hadIt": "Button: the interview took place.",
+  "todos.checkin.hadNot": "Button: the interview did not take place.",
+  "todos.checkin.didIt": "Button: the assessment was done.",
+  "todos.checkin.didNot": "Button: the assessment was not done.",
+  "todos.checkin.howWasIt": "Label before the three choices (optional).",
+  "todos.checkin.good": "How an interview/assessment went: well.",
+  "todos.checkin.ok": "How it went: so-so.",
+  "todos.checkin.bad": "How it went: not well.",
+  "todos.checkin.notePlaceholder": "Field: the applicant's own note about how it went.",
+  "todos.checkin.noted": "Toast after saying it took place.",
+  "todos.checkin.notedNot": "Toast after saying it did not take place.",
+  "application.tl.interview": "Time line: what a check-in was about (inside the titles below).",
+  "application.tl.assessment": "Time line: what a check-in was about.",
+  "application.tl.checkedDone": "Time line: the applicant said the interview/assessment took place. {what} is 'the interview' or 'the assessment'.",
+  "application.tl.checkedNot": "Time line: the applicant said it did not take place."
 }

@@ -451,6 +451,12 @@ def detail(application_id: int) -> dict[str, Any] | None:
         for e in work.journal(a.id):      # each run of the agent on it: how it ended, in the agent's own words
             if e["kind"] in ("report", "ended"):
                 line.append({"at": e["at"], "kind": "run", "what": T("server.applications.aRunOfThe"), "ok": e["kind"] == "report", "said": str(e.get("text") or "")[:300]})
+        # what the applicant said after an interview or an assessment of it (checkin.py) - the items it is the application of
+        for t in s.query(Todo).filter(Todo.kind == "followup", Todo.payload["application_id"].as_integer() == a.id):
+            c = (t.payload or {}).get("checkin")
+            if c:
+                line.append({"at": str(c.get("at") or ""), "kind": "checkin", "category": str((t.payload or {}).get("category") or ""), "done": bool(c.get("done")),
+                             "feeling": str(c.get("feeling") or ""), "note": str(c.get("note") or "")})
         for m in mails:
             line.append({"at": _iso(m.received_at), "kind": "mail", "label": messages.mail_label(m.category, m.event or "new")[1], "subject": m.subject, "message_id": m.message_id,
                          "category": m.category or "other", "event": m.event or "new", "summary": m.summary or "", "sender": m.sender or ""})

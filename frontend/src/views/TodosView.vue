@@ -52,6 +52,9 @@ const VIEW = {
   // something to do by a date, or about to get one: an offer to answer, documents to send, a contact to get back to,
   // an interview or an assessment whose time is not set yet (once it has one, it is on the calendar alone: models.py)
   followup: { icon: 'bell', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
+  // after an interview or an assessment: did it happen, how did it go (checkin.py)
+  checkin: { icon: 'clipboard', tone: 'info', title: (t) => t.title,
+    what: (t) => (t.payload && t.payload.category === 'assessment' ? T('todos.checkin.askAssessment') : T('todos.checkin.askInterview')) },
   // the applicant's own item with a date (added on the calendar page)
   note: { icon: 'clock', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
 }
@@ -148,6 +151,12 @@ const registerAgain = (t) => act(async () => {
 // agent uses it from here (the site's work moves to the browser that sign-in lives in)
 const signInWith = (t, p) => act(() => api.post('/accounts/sign-in-with', { tenant_key: t.payload.tenant_key, provider: p.key }), T('todos.signsInWith', { provider: p.name }))
 const done = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), T('todos.resumed'))
+// after an interview or an assessment: done or not, how it felt (optional), a word of their own (optional)
+const feeling = ref({})
+const feelNote = ref({})
+const FEELINGS = [['good', 'todos.checkin.good'], ['ok', 'todos.checkin.ok'], ['bad', 'todos.checkin.bad']]
+const checkin = (t, yes) => act(() => api.post(`/todos/${t.id}/checkin`, { done: yes, feeling: yes ? feeling.value[t.id] || '' : '', note: feelNote.value[t.id] || '' }),
+  yes ? T('todos.checkin.noted') : T('todos.checkin.notedNot'))
 const codes = ref({})        // what is being typed into each code card
 const giveCode = (t) => act(async () => {
   const r = await api.post(`/todos/${t.id}/code`, { code: codes.value[t.id] })
@@ -229,6 +238,10 @@ function acts(t) {
   } else if (t.kind === 'resume') {
     const r = RESUME[p.need] || RESUME.confirm
     main = A(r[1], 'refresh', { go: () => resumeNow(t) }); menu = [away]; more = { help: r[2] }
+  } else if (t.kind === 'checkin') {
+    main = A(t.payload && t.payload.category === 'assessment' ? T('todos.checkin.didIt') : T('todos.checkin.hadIt'), 'check', { go: () => checkin(t, true) })
+    beside = [A(t.payload && t.payload.category === 'assessment' ? T('todos.checkin.didNot') : T('todos.checkin.hadNot'), 'x', { go: () => checkin(t, false) })]
+    menu = [away]
   } else if (t.kind === 'facts_changed') {
     const none = !factsPicked(t).length
     main = A(T('todos.prepareTheTickedOnes'), 'refresh', { go: () => factsDecide(t, 'redo'), disabled: none })
@@ -377,6 +390,15 @@ onMounted(() => { load(); loadRang() })
       <p v-if="t.payload && t.payload.trying" class="callout"><Icon name="clock" /><span>{{ $t('todos.theSignInWindow') }}</span></p>
       <div v-else-if="t.payload && t.payload.last_try" class="callout warn"><Icon name="alert" /><div><div>{{ $t('todos.lastTryDidNotWork') }}</div><TechDetails :text="t.payload.last_try" /></div></div>
 
+      <!-- after an interview or an assessment: how it went (optional), and a word of their own -->
+      <div v-if="t.kind === 'checkin'" class="checkin-feel">
+        <span class="t-meta">{{ $t('todos.checkin.howWasIt') }}</span>
+        <div class="seg" role="radiogroup" :aria-label="$t('todos.checkin.howWasIt')">
+          <button v-for="[k, label] in FEELINGS" :key="k" type="button" class="sm" role="radio" :aria-checked="feeling[t.id] === k" :class="{ on: feeling[t.id] === k }"
+                  @click="feeling[t.id] = feeling[t.id] === k ? '' : k">{{ $t(label) }}</button>
+        </div>
+        <input v-model="feelNote[t.id]" class="grow" maxlength="500" :placeholder="$t('todos.checkin.notePlaceholder')" :aria-label="$t('todos.checkin.notePlaceholder')" />
+      </div>
       <!-- what a "profile changed" card asks about: the lines that changed, and the applications that still say the old thing -->
       <div v-if="t.kind === 'facts_changed'" class="facts-changed">
         <div v-for="(c, i) in t.payload.changes || []" :key="i" class="fc-line"><span class="meta">{{ c.key || $t('todos.thisLine') }}</span> <s class="muted">{{ c.old }}</s> → <span class="t-primary">{{ c.new || $t('todos.removed') }}</span></div>
