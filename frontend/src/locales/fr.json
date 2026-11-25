@@ -589,7 +589,7 @@
     },
     "sites": {
       "notesTheAgentKeeps": "Notes de l’agent sur les sites",
-      "withEveryApplicationThe": "À chaque candidature, l’agent note ce qu’il vaut la peine de savoir sur le site pour la prochaine fois : comment fonctionnent ses contrôles, ce que son lecteur de CV comprend mal, où se cache l’étape suivante. Il relit cela en premier quand il revient sur le même site. Les notes sur tout un système de recrutement valent pour chaque employeur qui l’utilise. Cliquez sur une ligne pour les lire.",
+      "withEveryApplicationThe": "À chaque candidature, l’agent note ce qu’il vaut la peine de savoir sur le site la fois suivante : comment ses contrôles fonctionnent, ce que son analyseur de CV comprend mal, où se cache l’étape suivante. Une fois une douzaine de notes réunies, elles sont rédigées en un seul récit de la façon de travailler le site (vous pouvez le reformuler) ; ce qui vaut pour tout le système de recrutement va dans les notes de ce système. L’agent lit tout cela d’abord quand il revient sur le même site. Cliquez sur une ligne pour les lire.",
       "website": "Site web",
       "scope": "Portée",
       "notes": "Notes",
@@ -601,7 +601,13 @@
       "clearTheNotesAbout": "Effacer les notes sur ce site ?",
       "theAgentWillFind": "L’agent réapprendra à se repérer sur ce site la prochaine fois. La connexion et le compte enregistré ne sont pas touchés.",
       "theWholeRecruitingSystem": "Tout le système de recrutement",
-      "thisSiteOnly": "Ce site seulement"
+      "thisSiteOnly": "Ce site seulement",
+      "howItIsWorked": "Comment ce site se travaille - tiré des notes le {day}",
+      "yourWording": "dans vos mots",
+      "editIt": "Modifier",
+      "notesThatWentIn": "La note qui y est entrée | Les {n} notes qui y sont entrées",
+      "notedSince": "Noté depuis",
+      "wordingSaved": "Enregistré : l’agent le lit dès la prochaine candidature"
     },
     "page": {
       "theDataForThis": "Les données de cette page n’ont pas pu être lues",

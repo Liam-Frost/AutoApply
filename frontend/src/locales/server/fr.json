@@ -504,6 +504,7 @@
  "server.humanize.couldntSignInAutomatically": "Impossible de se connecter automatiquement avec le mot de passe enregistré. Connectez-vous une fois.",
  "server.humanize.couldntUnderstandThisSites": "Impossible de comprendre le formulaire de candidature de ce site.",
  "server.humanize.createProfileFromR": "Créer le profil à partir du CV",
+ "server.humanize.distillSiteNotes": "Condenser les notes d’un site",
  "server.humanize.done": "Fait",
  "server.humanize.draftCreatedAwaitingYour": "Brouillon créé, attend votre approbation",
  "server.humanize.draftGeneratedItIs": "Brouillon généré ; il vous attend sur la page Profil",

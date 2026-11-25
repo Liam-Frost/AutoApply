@@ -504,6 +504,7 @@
  "server.humanize.couldntSignInAutomatically": "用保存的密码自动登录失败，需要你登录一次。",
  "server.humanize.couldntUnderstandThisSites": "无法读懂这个网站的申请表。",
  "server.humanize.createProfileFromR": "从简历生成个人资料",
+ "server.humanize.distillSiteNotes": "提炼网站笔记",
  "server.humanize.done": "完成",
  "server.humanize.draftCreatedAwaitingYour": "草案已生成，待批准",
  "server.humanize.draftGeneratedItIs": "草稿已生成，请在“个人资料”页查看",

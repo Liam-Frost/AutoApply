@@ -175,13 +175,60 @@ def notes(key: str) -> str:
         return knowledge.playbook(key)
     with db.session() as s:
         row = s.get(Site, key)
-        rows = list(row.notes or []) if row is not None else []
-    return "\n".join(f"- ({n.get('at', '')}) {n.get('text', '')}" for n in rows)
+        digest, raw = _split(list(row.notes or []) if row is not None else [])
+    said = "\n".join(f"- ({n.get('at', '')}) {n.get('text', '')}" for n in raw)
+    if not digest:
+        return said
+    return (f"How this site is worked (distilled on {digest.get('at', '')} from earlier runs' notes):\n{digest.get('text', '')}"
+            + (f"\n\nNoted since:\n{said}" if said else ""))
+
+
+# --- the notes, distilled ------------------------------------------------------------------------------------------
+# A site's notes are lines, newest first, each one what one run found out. They used to be kept to the newest twelve,
+# the oldest dropped - and what was dropped was often what still held (how the form goes), while what stayed was what
+# one run met once. Now, when there are twelve, the model writes them - with what was distilled before - into one
+# account of how the site is worked, and what holds for every site on its recruiting system goes to the system's notes
+# (2026-11-25, the owner: "the notes should get better with every application"). The lines that went into it are kept
+# with it, to be read on the sites page. Until that is done, more lines are kept than twelve, up to twice as many.
+DIGEST_KEEPS = 48       # the lines kept with the account they went into (the newest)
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def _split(rows: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """(the distilled account, or None; the lines noted since it, newest first)."""
+    return next((n for n in rows if n.get("digest")), None), [n for n in rows if not n.get("digest")]
+
+
+def system_of(key: str) -> str:
+    """The recruiting system a site is on, by the name its notes are kept under ("system:<name>") - when the program
+    knows that system (a playbook ships for it); '' for an employer's own site."""
+    from .agent import brief
+
+    ats = norm(key).split(":", 1)[0]
+    return ats if ats in brief.playbooks() else ""
+
+
+def distill_due(key: str) -> bool:
+    with db.session() as s:
+        row = s.get(Site, norm(key))
+        return row is not None and len(_split(list(row.notes or []))[1]) >= KEEP_NOTES
+
+
+def queue_due() -> list[str]:
+    """Every site with as many lines as are distilled (notes from before they were): distilled, in the background."""
+    from . import tasks
+
+    with db.session() as s:
+        due = [r.key for r in s.query(Site) if ":" in r.key and len(_split(list(r.notes or []))[1]) >= KEEP_NOTES]
+    for key in due:
+        tasks.enqueue("notes", ref=key, payload={"key": key}, priority=190)
+    return due
 
 
 def note(key: str, text: str, *, keep: int = KEEP_NOTES) -> None:
-    """Remember something the AI found out about working this site. The same thing said again moves to the top; the
-    oldest are dropped."""
+    """Remember something the AI found out about working this site. The same thing said again moves to the top. Once
+    there are ``keep`` lines, they are distilled (in the background: distill); lines beyond twice that are dropped,
+    oldest first, should that not happen."""
     from . import knowledge
 
     key, text = norm(key), re.sub(r"\s+", " ", text or "").strip()
@@ -192,8 +239,84 @@ def note(key: str, text: str, *, keep: int = KEEP_NOTES) -> None:
         return
     with db.session() as s:
         row = _row(s, key, make=True)
-        rest = [n for n in (row.notes or []) if n.get("text") != text[:1200]]
-        row.notes = [{"at": date.today().isoformat(), "text": text[:1200]}, *rest][:keep]
+        digest, raw = _split(list(row.notes or []))
+        raw = [{"at": date.today().isoformat(), "text": text[:1200]}, *[n for n in raw if n.get("text") != text[:1200]]][: keep * 2]
+        row.notes = [*([digest] if digest else []), *raw]
+        due = len(raw) >= keep
+    if due:
+        from . import tasks
+
+        tasks.enqueue("notes", ref=key, payload={"key": key}, priority=190)
+
+
+DISTILL = """You keep what an application agent has learned about working one employer's careers site, so that the
+next application there goes straight through. You are given what was written before (an account distilled earlier,
+if any) and the notes runs left since, newest first.
+
+Write one account of how this site is worked, for the agent to read before it starts:
+- in short sections by stage, those that apply: getting to the form; signing in or registering; the form, step by
+  step; files; sending and the confirmation; what to watch out for;
+- only what is concrete and still holds: labels, buttons, addresses, selectors and orders as they were noted, word for
+  word; where notes disagree, the newer one holds; leave out what happened once and says nothing about the site (a
+  posting that was closed, a run that was interrupted, a question one posting asked);
+- nothing about the applicant: no e-mail address, name, phone number, password or answer of theirs - say "the
+  applicant's address" and the like;
+- at most about 2,500 characters, in English.
+
+Separately, under "system": what you learned that holds for every site on the recruiting system named below, not for
+this employer only - each a sentence or two; none when nothing does, or when no system is named."""
+
+
+def distill(key: str) -> dict[str, Any]:
+    """Write a site's notes into one account (DISTILL); what holds for its whole recruiting system goes to that
+    system's notes. The lines that went in are kept with the account; lines noted while the model wrote stay lines."""
+    import json as _json
+
+    from . import llm
+
+    key = norm(key)
+    with db.session() as s:
+        row = s.get(Site, key)
+        digest, raw = _split(list(row.notes or []) if row is not None else [])
+    if not raw:
+        return {"distilled": 0}
+    system = "" if key.startswith("system:") else system_of(key)
+    schema = llm.obj({"how": {"type": "string"}, "system": {"type": "array", "items": {"type": "string"}}})
+    on = system or "(none: an employer's own site)"
+    out = llm.json(f"<site>{name(key)} ({key})</site>\n<recruiting_system>{on}</recruiting_system>\n\n"
+                   f"<written_before>\n{(digest or {}).get('text') or '(nothing yet)'}\n</written_before>\n\n<notes>\n"
+                   + "\n".join(_json.dumps(n, ensure_ascii=False) for n in raw) + "\n</notes>", schema, system=DISTILL)
+    how = _EMAIL.sub("(the applicant's address)", str(out.get("how") or "")).strip()[:6000]
+    if not how:
+        return {"distilled": 0}
+    went = {(n.get("at"), n.get("text")) for n in raw}
+    with db.session() as s:
+        row = _row(s, key, make=True)
+        now_digest, now_raw = _split(list(row.notes or []))
+        # (what the model was given is still what is there: the applicant may have reworded the account or cleared the
+        # notes while it wrote - their word stands, and this result is not written)
+        if now_digest != digest or not any((n.get("at"), n.get("text")) in went for n in now_raw):
+            return {"distilled": 0, "stale": True}
+        kept = [n for n in now_raw if (n.get("at"), n.get("text")) not in went]       # (noted while the model wrote)
+        folded = [{"at": n.get("at", ""), "text": n.get("text", "")} for n in raw] + list((digest or {}).get("from") or [])
+        row.notes = [{"at": date.today().isoformat(), "text": how, "digest": True, "from": folded[:DIGEST_KEEPS]}, *kept]
+    up = [_EMAIL.sub("(the applicant's address)", " ".join(str(x).split()))[:600] for x in (out.get("system") or [])][:4] if system else []
+    for x in up:
+        if x:
+            note(f"system:{system}", x)
+    return {"distilled": len(raw), "system": len(up)}
+
+
+def set_digest(key: str, text: str) -> None:
+    """The applicant's own wording of how a site is worked (the sites page): it takes the place of the account."""
+    key, text = norm(key), str(text or "").strip()[:6000]
+    with db.session() as s:
+        row = _row(s, key, make=True)
+        digest, raw = _split(list(row.notes or []))
+        if not text:
+            row.notes = raw
+            return
+        row.notes = [{**(digest or {"from": []}), "at": date.today().isoformat(), "text": text, "digest": True, "by": "applicant"}, *raw]
 
 
 # --- all of it -----------------------------------------------------------------------------------------------------
@@ -206,8 +329,8 @@ def about(key: str) -> dict[str, Any]:
         facts = {**FACTS, **{k: v for k, v in ((row.facts or {}) if row is not None else {}).items() if k in FACTS}}
         same_as = str(row.same_as or "") if row is not None else ""
         updated = row.updated_at.isoformat() if row is not None and row.updated_at else ""
-        kept = list(row.notes or []) if row is not None and ":" in key else []
-    return {"key": key, "name": name(key), "explored": explored(key), "signs_in_on": same_as, "facts": facts, "updated": updated,
+        digest, kept = _split(list(row.notes or [])) if row is not None and ":" in key else (None, [])
+    return {"key": key, "name": name(key), "explored": explored(key), "signs_in_on": same_as, "facts": facts, "updated": updated, "digest": digest,
             "notes": kept if ":" in key else [{"at": "", "text": ln[2:]} for ln in notes(key).splitlines() if ln.startswith("- ")][:KEEP_NOTES]}
 
 
@@ -244,8 +367,16 @@ def move(old: str, new: str) -> bool:
         b = _row(s, new, make=True)
         b.same_as = b.same_as or a.same_as
         b.facts = {**(a.facts or {}), **(b.facts or {})}
-        seen = {n.get("text") for n in (b.notes or [])}
-        b.notes = [*(b.notes or []), *[n for n in (a.notes or []) if n.get("text") not in seen]][:KEEP_NOTES]
+        # (one account of how the site is worked: the new address's, else the old one's - the other's text goes on as a
+        # line, to be distilled with the rest; lines beyond twice the number distilled at are dropped, as in note())
+        db_, rb = _split(list(b.notes or []))
+        da, ra = _split(list(a.notes or []))
+        seen = {n.get("text") for n in rb}
+        raw = [*rb, *[n for n in ra if n.get("text") not in seen]]
+        if db_ and da:
+            raw.append({"at": da.get("at", ""), "text": str(da.get("text", ""))[:1200]})
+        digest = db_ or da
+        b.notes = [*([digest] if digest else []), *raw[: KEEP_NOTES * 2]]
         s.delete(a)
         for other in s.query(Site).filter(Site.same_as == old):
             other.same_as = new

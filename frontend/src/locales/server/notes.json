@@ -504,6 +504,7 @@
  "server.humanize.couldntSignInAutomatically": "Said by the program (humanize.py).",
  "server.humanize.couldntUnderstandThisSites": "Said by the program (humanize.py).",
  "server.humanize.createProfileFromR": "Said by the program (humanize.py).",
+ "server.humanize.distillSiteNotes": "Said by the program (humanize.py): the name of the background task that writes a site's many notes into one account.",
  "server.humanize.done": "Said by the program (humanize.py).",
  "server.humanize.draftCreatedAwaitingYour": "Said by the program (humanize.py).",
  "server.humanize.draftGeneratedItIs": "Said by the program (humanize.py).",
