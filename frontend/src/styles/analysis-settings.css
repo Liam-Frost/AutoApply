@@ -74,6 +74,12 @@
 .an-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s4); margin-bottom: var(--s3); }
 .an-facts b { color: var(--text); font-weight: var(--fw-semibold); }
 .site-notes, .plain-list { margin: var(--s1) 0 0; padding-left: 18px; font-size: var(--fs-sm); line-height: 1.6; white-space: normal; }
+.site-digest { margin-top: var(--s2); padding: var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.site-digest .digest-head { display: flex; align-items: center; gap: var(--s2); }
+.site-digest .digest-text { margin-top: var(--s2); font-size: var(--fs-sm); line-height: 1.6; white-space: pre-wrap; }
+.site-digest textarea { margin-top: var(--s2); }
+.site-digest .digest-from { margin-top: var(--s2); }
+.notes-since { margin-top: var(--s3); }
 .plain-list { max-height: 240px; overflow: auto; }
 
 /* bars by category: the width of the label column, and the second figure after the first */

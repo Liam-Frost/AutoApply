@@ -28,8 +28,16 @@ const COLS = [
 ]
 const site = ref(null)
 async function show(row) {
+  editing.value = false
   if (site.value && site.value.key === row.key) { site.value = null; return }
   try { site.value = await api.get(`/sites/${encodeURIComponent(row.key)}`) } catch (e) { toast(e.message, 'bad') }
+}
+// the account the notes were distilled into (sites.distill): read, and put in the applicant's own words if they like
+const editing = ref(false)
+const draft = ref('')
+const edit = () => { draft.value = site.value.digest.text; editing.value = true }
+async function saveDigest() {
+  try { site.value = await api.put(`/sites/${encodeURIComponent(site.value.key)}/digest`, { text: draft.value }); editing.value = false; toast(T('analytics.sites.wordingSaved')) } catch (e) { toast(e.message, 'bad') }
 }
 async function forget(row) {
   // (the question, then what follows from a yes - one text: ask() takes the words and the options apart)
@@ -50,7 +58,24 @@ async function forget(row) {
       <template #cell-act="{ row }"><Menu :label="$t('common.more')" size="sm" :items="[{ id: 'clear', label: $t('analytics.sites.clear'), icon: 'trash', danger: true }]" @pick="forget(row)" /></template>
       <template #expanded>
         <div v-if="site.signs_in_on" class="t-meta">{{ $t('analytics.sites.itsSignInIs') }}<span data-notr>{{ site.signs_in_on.replace(/^(generic:|idp:)/, '') }}</span></div>
-        <ul class="site-notes"><li v-for="(n, i) in site.notes" :key="i" data-notr><span v-if="n.at" class="t-meta atomic">{{ n.at }}</span> {{ n.text }}</li></ul>
+        <div v-if="site.digest" class="site-digest">
+          <div class="digest-head">
+            <span class="t-meta">{{ $t('analytics.sites.howItIsWorked', { day: site.digest.at }) }}<template v-if="site.digest.by === 'applicant'"> · {{ $t('analytics.sites.yourWording') }}</template></span>
+            <span class="grow"></span>
+            <button v-if="!editing" type="button" class="sm" @click="edit">{{ $t('analytics.sites.editIt') }}</button>
+          </div>
+          <template v-if="editing">
+            <textarea v-model="draft" v-focus rows="12" class="w-full" :aria-label="$t('analytics.sites.howItIsWorked', { day: site.digest.at })"></textarea>
+            <div class="actions"><span class="grow"></span><button type="button" class="sm" @click="editing = false">{{ $t('common.cancel') }}</button><button type="button" class="sm primary" @click="saveDigest">{{ $t('common.save') }}</button></div>
+          </template>
+          <div v-else class="digest-text" data-notr>{{ site.digest.text }}</div>
+          <details v-if="(site.digest.from || []).length" class="digest-from">
+            <summary class="t-meta">{{ $t('analytics.sites.notesThatWentIn', { n: site.digest.from.length }, site.digest.from.length) }}</summary>
+            <ul class="site-notes"><li v-for="(n, i) in site.digest.from" :key="i" data-notr><span v-if="n.at" class="t-meta atomic">{{ n.at }}</span> {{ n.text }}</li></ul>
+          </details>
+        </div>
+        <div v-if="site.digest && site.notes.length" class="t-meta notes-since">{{ $t('analytics.sites.notedSince') }}</div>
+        <ul v-if="site.notes.length" class="site-notes"><li v-for="(n, i) in site.notes" :key="i" data-notr><span v-if="n.at" class="t-meta atomic">{{ n.at }}</span> {{ n.text }}</li></ul>
       </template>
     </DataTable>
   </div>
