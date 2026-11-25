@@ -49,7 +49,8 @@ const VIEW = {
   failed: { icon: 'alert', tone: 'bad', title: (t) => t.title, what: (t) => t.explained.message },
   config: { icon: 'settings', tone: '', title: (t) => t.title, what: (t) => t.explained.message },
   mail_unmatched: { icon: 'mail', tone: 'info', title: () => T('todos.anEmailDidntMatch'), what: (t) => (t.body ? T('todos.what.mail', { subject: t.title, body: t.body }) : T('todos.what.mailOnly', { subject: t.title })) },
-  // something with a date of its own: an interview, an assessment to finish, an offer to answer, a contact to get back to
+  // something to do by a date, or about to get one: an offer to answer, documents to send, a contact to get back to,
+  // an interview or an assessment whose time is not set yet (once it has one, it is on the calendar alone: models.py)
   followup: { icon: 'bell', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },
   // the applicant's own item with a date (added on the calendar page)
   note: { icon: 'clock', tone: 'info', title: (t) => t.title, what: (t) => t.body || '' },

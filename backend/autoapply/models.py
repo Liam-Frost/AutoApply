@@ -359,16 +359,18 @@ class Outgoing(Base):
 # to-do page, in no count of what waits for the applicant. Its reminder is the notice (alarms.py). It used to be a card
 # on the to-do page as well; closing that card took the item off the calendar (2026-11-23).
 CALENDAR_ONLY = ("note",)
-# A follow-up from an employer's mail that is an event, not a task: an interview (2026-11-24, the owner: "only on the
-# calendar; a notice when it arrives and when it is time"). An assessment to finish, documents to send, an offer to
-# answer stay tasks.
-EVENT_FOLLOWUPS = ("interview",)
+# A follow-up from an employer's mail that is a date on the calendar, not a task: an interview (2026-11-24, the owner:
+# "only on the calendar; a notice when it arrives and when it is time"), and an assessment with its deadline (2026-11-25:
+# the owner found one as a card with "Done" and asked why it was not like the interview). Done on the calendar like any
+# item of it. Documents to send and an offer to answer stay tasks. And one with no date yet stays a task until it has
+# one - "book a time", a test whose deadline the mail did not give: on the calendar alone it would be nowhere at all.
+EVENT_FOLLOWUPS = ("interview", "assessment")
 
 
-def calendar_only(kind: str, payload: dict | None = None) -> bool:
-    """Is a Todo of this kind (with this payload) an item of the calendar alone - not a task on the to-do page? A
-    follow-up is by what it is about (its category), as the calendar names it."""
-    return kind in CALENDAR_ONLY or (kind == "followup" and str((payload or {}).get("category") or "") in EVENT_FOLLOWUPS)
+def calendar_only(kind: str, payload: dict | None = None, due_at: Any = None) -> bool:
+    """Is a Todo of this kind (with this payload and date) an item of the calendar alone - not a task on the to-do
+    page? A follow-up is by what it is about (its category), as the calendar names it, and only once it has a date."""
+    return kind in CALENDAR_ONLY or (kind == "followup" and str((payload or {}).get("category") or "") in EVENT_FOLLOWUPS and due_at is not None)
 
 
 class Todo(Base):
@@ -381,7 +383,7 @@ class Todo(Base):
 
         # (coalesce: a payload without a category gives NULL, and NOT NULL would leave the row out)
         category = func.coalesce(Todo.payload["category"].as_string(), "")
-        return not_(or_(Todo.kind.in_(CALENDAR_ONLY), and_(Todo.kind == "followup", category.in_(EVENT_FOLLOWUPS))))
+        return not_(or_(Todo.kind.in_(CALENDAR_ONLY), and_(Todo.kind == "followup", category.in_(EVENT_FOLLOWUPS), Todo.due_at.isnot(None))))
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     kind: Mapped[str] = mapped_column(String)  # takeover|answer|submit|failed|blocked|config|mail_unmatched|followup (and, in the history, the kinds of earlier versions)
