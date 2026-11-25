@@ -490,7 +490,8 @@
       "showAllRuns": "查看全部 {p0} 次",
       "theLastRunsClick": "最近 {p0} 次。点一行看它用到的每一次模型请求。",
       "text": "{p0} 次",
-      "filledInAndWaiting": "填好等你提交 {p0}，点了提交、结果待确认 {p1}，等你处理（登录、验证码）{p2}，改为可见窗口重跑 {p3}，进行中 {p4}"
+      "filledInAndWaiting": "填好等你提交 {p0}，点了提交、结果待确认 {p1}，等你处理（登录、验证码）{p2}，改为可见窗口重跑 {p3}，进行中 {p4}",
+      "whatTheyWaitedFor": "停下来等你的那些，在等什么"
     },
     "apps": {
       "applicationsSubmitted": "份申请已投递",

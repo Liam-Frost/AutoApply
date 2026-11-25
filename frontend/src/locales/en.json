@@ -490,7 +490,8 @@
       "showAllRuns": "Show all {p0} runs",
       "theLastRunsClick": "The last {p0} runs. Click a row to see every model request it made.",
       "text": "{p0}×",
-      "filledInAndWaiting": "filled in and waiting for you to submit {p0}; Submit pressed, outcome not known {p1}; waiting for you (sign-in, verification) {p2}; run again in a visible window {p3}; in progress {p4}"
+      "filledInAndWaiting": "filled in and waiting for you to submit {p0}; Submit pressed, outcome not known {p1}; waiting for you (sign-in, verification) {p2}; run again in a visible window {p3}; in progress {p4}",
+      "whatTheyWaitedFor": "Of the runs that stopped for you, what they waited for"
     },
     "apps": {
       "applicationsSubmitted": "applications submitted",

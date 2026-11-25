@@ -490,7 +490,8 @@
       "showAllRuns": "Afficher les {p0} exécutions",
       "theLastRunsClick": "Les {p0} dernières exécutions. Cliquez sur une ligne pour voir toutes les requêtes de modèle qu’elle a faites.",
       "text": "{p0}×",
-      "filledInAndWaiting": "remplies et en attente de votre envoi {p0} ; Envoyer pressé, issue inconnue {p1} ; en attente de vous (connexion, vérification) {p2} ; relancées dans une fenêtre visible {p3} ; en cours {p4}"
+      "filledInAndWaiting": "remplies et en attente de votre envoi {p0} ; Envoyer pressé, issue inconnue {p1} ; en attente de vous (connexion, vérification) {p2} ; relancées dans une fenêtre visible {p3} ; en cours {p4}",
+      "whatTheyWaitedFor": "Parmi les passages arrêtés pour vous, ce qu’ils attendaient"
     },
     "apps": {
       "applicationsSubmitted": "candidatures envoyées",

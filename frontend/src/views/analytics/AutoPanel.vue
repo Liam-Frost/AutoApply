@@ -56,6 +56,9 @@ const CHART = H.card + 168 + H.legend + H.foot + 52      // (the stacked chart, 
 const reasonPair = computed(() => pairs(CHART, props.d.reasons.length ? reasons(topReasons.value.length + (restReasons.value ? 1 : 0), { foot: H.foot }) : H.card + 40))
 // how each run ended beside the recruiting systems' table
 const runEnds = computed(() => (props.d.agent_runs && props.d.agent_runs.ends) || [])
+// (of the runs that stopped for the applicant: what each waited for)
+const runWaits = computed(() => (props.d.agent_runs && props.d.agent_runs.waits) || [])
+const maxWait = computed(() => Math.max(1, ...runWaits.value.map((e) => e.n)))
 const bySystem = computed(() => (props.d.agent_runs && props.d.agent_runs.by_system) || [])
 const runsPair = computed(() => pairs(bars(runEnds.value.length), tall(bySystem.value.length)))
 
@@ -190,6 +193,16 @@ const pickOutcome = (v) => { drawer.outcome = v; drawer.page = 0 }
               <span class="num">{{ e.n }}</span>
             </template>
           </div>
+          <template v-if="runWaits.length">
+            <div class="t-meta an-sub">{{ $t('analytics.auto.whatTheyWaitedFor') }}</div>
+            <div class="hbars tight even lab-md">
+              <template v-for="e in runWaits" :key="e.key">
+                <Trunc class="lab" :text="e.label" />
+                <div class="track"><div class="fill" :style="{ width: pct(e.n, maxWait) + '%' }"></div></div>
+                <span class="num">{{ e.n }}</span>
+              </template>
+            </div>
+          </template>
         </div>
         <div v-if="bySystem.length" class="card">
           <CardHead :title="$t('analytics.auto.upToReadyTo')" />

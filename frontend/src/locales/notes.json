@@ -3266,5 +3266,6 @@
   "common.newBuild": "Notice that stays on an open page after the program was updated and restarted into a new build; the page is still the old one.",
   "common.loadItNow": "Button in that notice: load the page again (the new build).",
   "todos.signInWithProvider": "Button on a site's sign-in card: the applicant signs in to this site with that provider (Google ...), whose sign-in the program holds; the agent then does it. {provider} is a name like Google.",
-  "todos.signsInWith": "Toast after Sign in with {provider} on a sign-in card."
+  "todos.signsInWith": "Toast after Sign in with {provider} on a sign-in card.",
+  "analytics.auto.whatTheyWaitedFor": "Sub-heading in 'How each run ended' (analytics, automation): the runs that ended 'stopped for you', by what they waited for."
 }

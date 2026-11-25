@@ -441,6 +441,11 @@ CATEGORIES: list[tuple[str, str, str]] = [
     ("ai_unavailable", T("server.analytics.aiServiceUnavailable"), r"LLMUnavailable|LLMError|login is not usable|no model|API key|AI 服务|AI 模型"),
     ("posting_closed", T("server.analytics.postingClosed"), r"posting not found|已关闭|已经关闭|no longer|下线|\b404\b|closed or wrong id"),
     ("site_down", T("server.analytics.siteUnreachable"), r"网站暂时打不开|打不开|not answering|HTTP 5\d\d|ERR_|Page\.goto: Timeout|could not open the posting|SiteDown"),
+    # no connection at all from this computer - the network, or the proxy on the way - before anything was asked of a
+    # site (Gmail read while Google could not be reached: "TransportError ...", which went under "error in the program")
+    ("network", T("server.analytics.networkOrProxy"), r"GmailUnreachable|cannot reach Gmail|TransportError|ProxyError|ConnectTimeout|ConnectError|"
+                                                       r"Connection (?:to \S+ )?timed out|TimeoutError: timed out|handshake operation timed out|getaddrinfo failed|"
+                                                       r"Name or service not known|Connection (?:refused|reset|aborted)"),
     ("login", T("server.analytics.signInOrVerification"), r"login required|needs login|sign.?in|captcha|verification|登录|验证码"),
     ("cannot_advance", T("server.analytics.formWillNotGo"), r"could not advance|没法进入下一步|does not go on"),
     ("fields", T("server.analytics.fieldsLeftUnfilled"), r"could not set every field|field\(s\) could not be filled|没能自动填上|option not found"),
@@ -618,6 +623,11 @@ def _applications(s: Any, rows: list[dict[str, Any]], ai: dict[int, dict[str, An
 
 
 # How each run of an application ended, as its journal says it (agent/run.py writes the journal).
+# What a run that stopped for the applicant waited for - read from its journal: the tool it stopped with (Desk:
+# sign_in_by_hand, ask_code, wait_for_applicant) or a question it asked (2026-11-25: such runs were one number, and
+# which of them were a sign-in, a code or a question could only be told by reading each).
+WAITS = {"sign_in": T("server.analytics.waits.signIn"), "code": T("server.analytics.waits.code"), "window": T("server.analytics.waits.window"),
+         "confirm": T("server.analytics.waits.confirm"), "question": T("server.analytics.waits.question"), "other": T("server.analytics.waits.other")}
 RUN_ENDS = {"submitted": T("server.analytics.submitted"), "ready": T("server.analytics.readyWaitingForYour"), "mailed": T("server.analytics.applicationEMailWritten"), "needs_you": T("server.analytics.stoppedForYou"), "cannot": T("server.analytics.couldNotBeDone"), "gone": T("server.analytics.thePostingHasBeen"),
             "other_browser": T("server.analytics.movedToTheOther"), "cut_off": T("server.analytics.stoppedWithoutAReport"), "model": T("server.analytics.modelUnavailableDidNot")}
 
@@ -640,7 +650,7 @@ def _journal_runs(folder: Path) -> list[dict[str, Any]]:
             continue
         k = e.get("kind")
         if k == "run":
-            cur = {"start": at, "end": at, "steps": 0, "end_kind": "", "mode": str(e.get("mode") or "")}
+            cur = {"start": at, "end": at, "steps": 0, "end_kind": "", "mode": str(e.get("mode") or ""), "need": "", "asked": False}
             out.append(cur)
             continue
         if cur is None:
@@ -650,6 +660,10 @@ def _journal_runs(folder: Path) -> list[dict[str, Any]]:
             cur["steps"] += 1
         elif k == "report" and e.get("outcome"):
             cur["end_kind"] = str(e["outcome"])
+        elif k == "needs_applicant":
+            cur["need"] = str(e.get("need") or "sign_in")
+        elif k == "ask":
+            cur["asked"] = True
         elif k == "mailed":
             cur["end_kind"] = "mailed"
         elif k == "browser" and not cur["end_kind"]:
@@ -658,6 +672,7 @@ def _journal_runs(folder: Path) -> list[dict[str, Any]]:
             cur["end_kind"] = "model"
     for r in out:
         r["end_kind"] = r["end_kind"] if r["end_kind"] in RUN_ENDS else "cut_off"
+        r["waited"] = (r["need"] if r["need"] in WAITS else "question" if r["asked"] else "other") if r["end_kind"] == "needs_you" else ""
         r["seconds"] = max(0.0, (r["end"] - r["start"]).total_seconds())
     return out
 
@@ -671,7 +686,7 @@ def agent_runs(w: Window) -> dict[str, Any]:
 
     with db.session() as s:
         apps = [(a.id, a.job.apply_url if a.job is not None else "") for a in s.query(Application)]
-    per_app, ends, systems = [], defaultdict(int), defaultdict(lambda: {"apps": 0, "done": 0, "steps": [], "seconds": []})
+    per_app, ends, waits, systems = [], defaultdict(int), defaultdict(int), defaultdict(lambda: {"apps": 0, "done": 0, "steps": [], "seconds": []})
     first_steps = later_steps = idle = 0
     for app_id, url in apps:
         runs_ = _journal_runs(work.folder_of(app_id))
@@ -682,6 +697,8 @@ def agent_runs(w: Window) -> dict[str, Any]:
         for r in runs_:
             if w.has(_utc(r["start"])):
                 ends[r["end_kind"]] += 1
+                if r["waited"]:
+                    waits[r["waited"]] += 1
         if not worked:
             continue
         per_app.append(len(worked))
@@ -703,6 +720,7 @@ def agent_runs(w: Window) -> dict[str, Any]:
             "runs_per_application": {"median": _median(per_app), "mean": round(sum(per_app) / len(per_app), 1) if per_app else None, "max": max(per_app) if per_app else None},
             "again": {"steps": later_steps, "of": total, "rate": round(later_steps / total, 4) if total else None},
             "ends": [{"key": k, "label": RUN_ENDS[k], "n": ends[k]} for k in RUN_ENDS if ends.get(k)],
+            "waits": [{"key": k, "label": WAITS[k], "n": waits[k]} for k in WAITS if waits.get(k)],
             "by_system": by_system}
 
 
