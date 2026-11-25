@@ -117,6 +117,8 @@ def _mail(t: Task) -> dict[str, Any]:
             if app is None or app.status not in ("submitted", UNKNOWN):
                 return {"skipped": "the application is confirmed already"}
     try:
+        if t.payload.get("history"):      # the mail from before the program read it, once (mail.read_back)
+            return mail.read_back()
         out = mail.track(days=int(t.payload.get("days", 3)), quick=bool(t.payload.get("quick")))
         if out.get("skipped"):
             return out

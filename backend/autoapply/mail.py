@@ -375,7 +375,14 @@ def _list(query: str, max_results: int = 50, *, skip: Any = None) -> list[dict[s
     """The messages a search finds, in full. ``skip(id)`` says which ones are already known: those are not fetched
     again - the list of ids is one request, each message is another."""
     svc = _service()
-    ids = svc.users().messages().list(userId="me", q=query, maxResults=max_results).execute().get("messages", [])
+    ids: list[dict[str, Any]] = []
+    token = None
+    while len(ids) < max_results:      # (a page at a time: one holds 500 at most; reading back months of mail takes more)
+        page = svc.users().messages().list(userId="me", q=query, maxResults=min(500, max_results - len(ids)), pageToken=token).execute()
+        ids += page.get("messages", [])
+        token = page.get("nextPageToken")
+        if not token:
+            break
     return [svc.users().messages().get(userId="me", id=m["id"], format="full").execute() for m in ids if not (skip and skip(m["id"]))]
 
 
@@ -954,11 +961,55 @@ def _known(message_id: str) -> bool:
         return s.query(MailEvent).filter_by(message_id=message_id).first() is not None
 
 
-def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[str, Any]:
+# --- reading back -------------------------------------------------------------------------------------------------
+# Mail is read for the last three days, hour by hour. What came before the program first read the mailbox was never
+# read: the applicant's earliest applications had their assessments, interviews and rejections in their inbox and
+# nowhere in the program (2026-11-25, the owner: "I need the agent to have as complete data as it can"). So once, the
+# mail is read back to two weeks before the first application on record - and again when applications older than that
+# come in (a table brought in). What is read back is put on the applications - their stages, their mails, dated when
+# the mails came - and asks nothing of the applicant now: no notices, no cards for what is over, nothing put on the
+# calendar for a date that has passed. A mail about an interview, an assessment or an offer that matches no
+# application does get its card ("which application is this?"), to be placed.
+READ_BACK = "mail.read_back_to"      # the day the mail has been read back to (ISO)
+BACK_DAYS = 14
+BACK_LIMIT = 1500
+
+
+def read_back_from() -> datetime | None:
+    """How far back the mail has to be read for every reply to the applications on record (None: no application)."""
+    from sqlalchemy import func
+
+    with db.session() as s:
+        first = s.query(func.min(func.coalesce(Application.submitted_at, Application.created_at))).scalar()
+    if first is None:
+        return None
+    return (first.replace(tzinfo=timezone.utc) if first.tzinfo is None else first) - timedelta(days=BACK_DAYS)
+
+
+def back_due() -> datetime | None:
+    """From when the mail is still to be read back (None: it has been, as far as it needs to)."""
+    since = read_back_from()
+    done = str(db.get_setting(READ_BACK) or "")
+    if since is None or (done and since.date().isoformat() >= done):
+        return None
+    return since
+
+
+def read_back() -> dict[str, Any]:
+    since = back_due()
+    if since is None:
+        return {"skipped": "read back already"}
+    out = track(since=since, max_results=BACK_LIMIT, history=True)
+    db.set_setting(READ_BACK, since.date().isoformat())
+    return {**out, "read_back_to": since.date().isoformat()}
+
+
+def track(days: int = 3, max_results: int = 80, *, quick: bool = False, since: datetime | None = None, history: bool = False) -> dict[str, Any]:
     """Read recent mail, classify, link to applications, update statuses, notify.
 
     ``quick``: only what arrived since the last look (Gmail). When that cannot be told, nothing is read and the
-    answer says so; the pass over the last ``days`` is the one that sets the starting point."""
+    answer says so; the pass over the last ``days`` is the one that sets the starting point. ``since``: from then
+    instead. ``history``: mail read back (read_back) - put on the applications, asking nothing of the applicant now."""
     from . import mailbox
 
     try:
@@ -967,7 +1018,7 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             if msgs is None:
                 return {"skipped": "no starting point yet: the next full pass sets one"}
         else:
-            msgs = mailbox.fetch(datetime.now(timezone.utc) - timedelta(days=days), max_results, job_related=True, skip=_known)
+            msgs = mailbox.fetch(since or datetime.now(timezone.utc) - timedelta(days=days), max_results, job_related=True, skip=_known)
     except mailbox.NotConfigured as e:
         raise MailNotConfigured(str(e)) from e
     try:
@@ -1012,6 +1063,10 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             continue      # (placed by its conversation, it is on the application's page; it changes nothing)
         if app_id is None:
             unmatched += 1
+            if history:      # (read back: only what is worth placing - an interview, an assessment, an offer - gets a card)
+                if t["category"] in ("interview", "assessment", "offer"):
+                    ask_which(mid, subj, t["category"], t.get("event") or "new", t["summary"], push=False)
+                continue
             ask_which(mid, subj, t["category"], t.get("event") or "new", t["summary"])
             if db.get_setting("mail.site_lookup") and candidates(t["company"]):
                 # the e-mail does not say which application; the employer's site does - look there before the applicant has to
@@ -1021,6 +1076,13 @@ def track(days: int = 3, max_results: int = 80, *, quick: bool = False) -> dict[
             continue
         updated += changed
         if early:
+            continue
+        if history:      # (read back: on the application, and on its calendar only what is still ahead)
+            from . import reminders
+
+            due, _ = reminders.due_of(asks)
+            if due is not None and due > datetime.now():
+                _asked(app_id, title, t["category"], t.get("event") or "new", t["summary"], asks, mid)
             continue
         _asked(app_id, title, t["category"], t.get("event") or "new", t["summary"], asks, mid)
         _tell(lambda: notify.send("status_update", messages.mail_update(t["category"], title, t["summary"], event=t.get("event") or "new"), ref=f"application:{app_id}", tag=t["category"]))

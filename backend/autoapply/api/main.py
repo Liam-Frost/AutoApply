@@ -77,6 +77,11 @@ def _start_up() -> None:
             tasks.enqueue("directions", ref="unsorted", priority=180)
     except Exception:  # noqa: BLE001 - never a reason not to start; they are sorted at the next start
         logging.getLogger("autoapply").exception("could not queue the sorting of the postings' fields")
+    try:      # the mail from before the program read it - back to before the first application - once, in the background
+        if mail.back_due() is not None:
+            tasks.enqueue("mail", ref="history", payload={"history": True}, priority=150)
+    except Exception:  # noqa: BLE001 - never a reason not to start
+        logging.getLogger("autoapply").exception("could not queue the reading back of the mail")
     try:      # every start: confirmations read while an application was taken for unsent; cards of applications that are sent
         from .. import lifecycle as _lifecycle
 
