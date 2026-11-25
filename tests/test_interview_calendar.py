@@ -1,5 +1,7 @@
 """An interview from an employer's mail is an event on the calendar, not a task (2026-11-24, the owner: "only on the
-calendar; a notice when it first arrives and when it is time"). An assessment to finish stays a task."""
+calendar; a notice when it first arrives and when it is time") - and so is an assessment with its deadline (2026-11-25:
+one was a card with "Done", "didn't I ask for this already?"). One with no date yet stays a task until it has one; an
+offer to answer stays a task."""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -7,11 +9,11 @@ from datetime import date, timedelta
 from autoapply import db
 
 
-def _application() -> int:
+def _application(n: int = 1) -> int:
     from autoapply.models import Application, Job
 
     with db.session() as s:
-        job = Job(source="manual", source_id="i1", company="Acme", title="Firmware Co-op", apply_url="https://acme.example/jobs/1", jd_text="x" * 300)
+        job = Job(source="manual", source_id=f"i{n}", company="Acme", title="Firmware Co-op", apply_url=f"https://acme.example/jobs/{n}", jd_text="x" * 300)
         s.add(job)
         s.flush()
         a = Application(job_id=job.id, status="confirmed")
@@ -20,7 +22,7 @@ def _application() -> int:
         return a.id
 
 
-def test_an_interview_is_on_the_calendar_its_arrival_a_notice_and_an_assessment_stays_a_task(app_env):
+def test_an_interview_and_an_assessment_are_on_the_calendar_once_they_have_a_date_and_their_arrival_is_a_notice(app_env):
     from fastapi.testclient import TestClient
 
     from autoapply import reminders
@@ -51,7 +53,24 @@ def test_an_interview_is_on_the_calendar_its_arrival_a_notice_and_an_assessment_
     c.post("/api/calendar/alarms/seen", json={"item": rang[0]["id"], "start": rang[0]["start"]})
     reminders.from_mail(app_id, "Acme · Firmware Co-op", "interview", "reminder", "Reminder", {"due": f"{later}T14:00"}, "m3")
     assert c.get("/api/calendar/alarms/recent").json() == []
-    # an assessment to finish is a task
-    reminders.from_mail(app_id, "Acme · Firmware Co-op", "assessment", "new", "Online assessment", {"due": f"{day}"}, "m4")
-    assert [(t["kind"], t["ref"]) for t in c.get("/api/todos").json()] == [("followup", f"followup:{app_id}:assessment")]
+    # an assessment with its deadline: the same - on the calendar, its arrival a notice, done there
+    aid = reminders.from_mail(app_id, "Acme · Firmware Co-op", "assessment", "new", "Online assessment, five tasks",
+                              {"due": f"{day}T08:00", "due_text": f"{day:%B} {day.day}, 08:00"}, "m4")
+    assert c.get("/api/todos").json() == [] and overview()["open_todos"] == 0
+    items = c.get("/api/calendar", params={"start": day.isoformat(), "end": (day + timedelta(days=1)).isoformat()}).json()["items"]
+    assert [x["kind"] for x in items if x["id"] == f"todo:{aid}"] == ["assessment"]
+    assert [(x["id"], x["why"]) for x in c.get("/api/calendar/alarms/recent").json()] == [(f"todo:{aid}", "new")]
+    c.post(f"/api/todos/{aid}/done", json={})
+    items = c.get("/api/calendar", params={"start": day.isoformat(), "end": (day + timedelta(days=1)).isoformat()}).json()["items"]
+    assert [x["done"] for x in items if x["id"] == f"todo:{aid}"] == [True]                 # (done: still on its day, marked so)
+    # an interview with no time yet ("book a slot"): a task until it has one - then on the calendar alone, and said
+    other = _application(2)
+    nid = reminders.from_mail(other, "Acme · Firmware Co-op", "interview", "new", "Please book a time for a first interview", {}, "m5")
+    assert [t["id"] for t in c.get("/api/todos").json()] == [nid] and overview()["open_todos"] == 1
+    reminders.from_mail(other, "Acme · Firmware Co-op", "interview", "changed", "Booked", {"due": f"{day}T16:00"}, "m6")
+    assert c.get("/api/todos").json() == [] and overview()["open_todos"] == 0
+    assert (f"todo:{nid}", "new") in [(x["id"], x["why"]) for x in c.get("/api/calendar/alarms/recent").json()]
+    # an offer to answer stays a task
+    reminders.from_mail(app_id, "Acme · Firmware Co-op", "offer", "new", "An offer", {"due": f"{day}"}, "m7")
+    assert [(t["kind"], t["ref"]) for t in c.get("/api/todos").json()] == [("followup", f"followup:{app_id}:offer")]
     assert overview()["open_todos"] == 1

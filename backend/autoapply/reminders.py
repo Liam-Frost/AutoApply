@@ -160,7 +160,8 @@ def from_mail(application_id: int, title: str, category: str, event: str, summar
     if first_date:      # a date for the first time: the reminders of its kind (a moved date keeps the ones it has, and they move with it)
         alarms.give_defaults(f"todo:{tid}", category, due, bool(payload.get("date_only")))
     if category in EVENT_FOLLOWUPS and due is not None and (first_date or moved):
-        # an interview is an event on the calendar, not a task: its arrival (or its new time) is a notice on the to-do page
+        # an interview, an assessment's deadline: a date on the calendar, not a task - its arrival (or its new time) is a
+        # notice on the to-do page
         alarms.announce(f"todo:{tid}", due.isoformat(timespec="minutes"))
     if existing:
         return tid
