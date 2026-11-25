@@ -1238,7 +1238,8 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
     enabled = bool(db.get_setting("browser.nodriver_enabled"))
 
     CAT = {"facts_changed": "answer", "mail_out": "submit", "takeover": "login", "login": "login", "captcha": "login", "code": "login", "confirm": "login", "resume": "login", "answer": "answer", "submit": "submit", "failed": "problem", "blocked": "problem", "config": "problem",
-           "mail_unmatched": "answer", "followup": "dated", "note": "dated"}
+           "mail_unmatched": "answer", "followup": "dated", "note": "dated",
+           "checkin": "answer"}      # (a question to answer - never a notice "All read" puts away unanswered)
     with db.session() as s:
         by_url = {j.apply_url: j for j in s.query(Job).filter(Job.apply_url != "")}
         own: dict[str, int] | None = None      # (the mails already on the applicant's own calendar, read once)

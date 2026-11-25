@@ -72,3 +72,50 @@ def test_after_its_time_a_card_asks_and_the_answer_moves_the_application_on_and_
     assert c.post(f"/api/todos/{card['id']}/checkin", json={"done": True}).json()["moved"] is False
     with db.session() as s:
         assert s.get(Application, later).status == "offer"
+
+
+def test_called_off_whole_day_rescheduled_and_all_read(app_env):
+    """Review: nothing asked about what was called off; a whole day only once it is over; a new date asked about again,
+    the first answer kept; a check-in is a question, never a notice that "All read" puts away."""
+    from fastapi.testclient import TestClient
+
+    from autoapply import checkin, clock, db, reminders
+    from autoapply.api.main import app
+    from autoapply.models import Todo
+
+    db.set_setting("time.zone", "UTC")
+    now = clock.now().replace(second=0, microsecond=0)
+    c = TestClient(app)
+    cards = lambda: [t for t in c.get("/api/todos").json() if t["kind"] == "checkin"]  # noqa: E731
+    # called off: no card
+    off = _application(11)
+    reminders.from_mail(off, "Acme · Co-op 11", "interview", "new", "Interview", {"due": (now + timedelta(hours=1)).isoformat(timespec="minutes")}, "c1")
+    reminders.from_mail(off, "Acme · Co-op 11", "interview", "cancelled", "Called off", {}, "c2")
+    assert checkin.ask_due(now + timedelta(hours=3)) == 0
+    # a whole day: not on the morning of it, once it is over
+    day = _application(12)
+    d0 = (now + timedelta(days=2)).date()
+    reminders.from_mail(day, "Acme · Co-op 12", "assessment", "new", "Assessment", {"due": d0.isoformat()}, "c3")
+    from datetime import datetime as _dt
+
+    assert checkin.ask_due(_dt.combine(d0, _dt.min.time()) + timedelta(hours=9)) == 0
+    assert checkin.ask_due(_dt.combine(d0, _dt.min.time()) + timedelta(days=1, minutes=1)) == 1
+    # asked, answered "did not take place", then moved by the employer: asked again after the new time; both answers kept
+    moved = _application(13)
+    iv = reminders.from_mail(moved, "Acme · Co-op 13", "interview", "new", "Interview", {"due": (now - timedelta(hours=3)).isoformat(timespec="minutes")}, "c4")
+    checkin.ask_due(now)
+    card = next(t for t in cards() if t["payload"]["item_id"] == iv)
+    c.post(f"/api/todos/{card['id']}/checkin", json={"done": False})
+    reminders.from_mail(moved, "Acme · Co-op 13", "interview", "changed", "Moved", {"due": (now + timedelta(days=1)).isoformat(timespec="minutes")}, "c5")
+    assert checkin.ask_due(now + timedelta(days=1, hours=2)) == 1
+    card = next(t for t in cards() if t["payload"]["item_id"] == iv)
+    c.post(f"/api/todos/{card['id']}/checkin", json={"done": True, "feeling": "ok", "note": "x" * 400})
+    with db.session() as s:
+        assert [x["done"] for x in s.get(Todo, iv).payload["checkins"]] == [False, True]
+    line = [e for e in c.get(f"/api/applications/{moved}").json()["timeline"] if e["kind"] == "checkin"]
+    assert sorted(e["done"] for e in line) == [False, True] and any(len(e["note"]) == 400 for e in line)
+    # a question, not a notice: not in what "All read" puts away
+    late = _application(14)
+    reminders.from_mail(late, "Acme · Co-op 14", "interview", "new", "Interview", {"due": (now - timedelta(hours=2)).isoformat(timespec="minutes")}, "c6")
+    checkin.ask_due(now)
+    assert all(t["category"] != "info" for t in cards()) and cards()

@@ -31,15 +31,18 @@ def ask_due(at: datetime | None = None) -> int:
         items = [(t.id, t.title, dict(t.payload or {}), t.due_at) for t in s.query(Todo).filter(Todo.kind == "followup", Todo.status != "dismissed", Todo.due_at.isnot(None))]
     for tid, title, p, due in items:
         wait = AFTER.get(str(p.get("category") or ""))
-        if wait is None or p.get("checkin") or p.get("checkin_asked"):
+        when = due.isoformat(timespec="minutes")      # (this occurrence: a new date is asked about again)
+        if wait is None or p.get("cancelled") or p.get("checkin_asked") == when or (p.get("checkin") or {}).get("for") == when:
             continue
-        end = due + wait
+        # a whole day (the mail gave a date, no time): once that day is over; else an hour after an interview began,
+        # at an assessment's deadline
+        end = due + timedelta(days=1) if p.get("date_only") or p.get("all_day") else due + wait
         if not (end <= here <= end + RECENT):
             continue
         notify.add_todo(KIND, title, body="", ref=f"{KIND}:{tid}", payload={"item_id": tid, "category": p["category"], "application_id": p.get("application_id")})
         with db.session() as s:
             t = s.get(Todo, tid)
-            t.payload = {**(t.payload or {}), "checkin_asked": True}
+            t.payload = {**(t.payload or {}), "checkin_asked": when}
         made += 1
     return made
 
@@ -57,7 +60,10 @@ def answer(card_id: int, *, done: bool, feeling: str = "", note: str = "") -> di
         if item is None:
             raise KeyError(card_id)
         cat = str((item.payload or {}).get("category") or p.get("category") or "")
-        item.payload = {**(item.payload or {}), "checkin": {"done": bool(done), "feeling": feeling, "note": str(note or "").strip()[:500], "at": now().isoformat()}}
+        said = {"done": bool(done), "feeling": feeling, "note": str(note or "").strip()[:500], "at": now().isoformat(),
+                "for": item.due_at.isoformat(timespec="minutes") if item.due_at else ""}
+        # (the latest answer, and every answer of the item - one for each time it was to take place)
+        item.payload = {**(item.payload or {}), "checkin": said, "checkins": [*((item.payload or {}).get("checkins") or []), said]}
         if done and item.status == "open":
             item.status, item.done_at = "done", now()
         moved = False
