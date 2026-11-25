@@ -30,11 +30,12 @@ class FakeGmail:
         self.queries: list[str] = []
         self.expired = False
 
-    def arrive(self, mid: str, subject: str, body: str = "", sender: str = "jobs@example.com", labels: tuple[str, ...] = ("INBOX",)) -> None:
+    def arrive(self, mid: str, subject: str, body: str = "", sender: str = "jobs@example.com", labels: tuple[str, ...] = ("INBOX",),
+               date: str = "Mon, 16 Nov 2026 10:00:00 +0000") -> None:
         self.history_id += 1
         self.added.append((self.history_id, mid))
         self.store[mid] = {"id": mid, "labelIds": list(labels), "payload": {"headers": [{"name": "Subject", "value": subject}, {"name": "From", "value": sender},
-                                                                {"name": "Date", "value": "Mon, 16 Nov 2026 10:00:00 +0000"}],
+                                                                {"name": "Date", "value": date}],
                                                     "mimeType": "text/plain", "body": {"data": base64.urlsafe_b64encode(body.encode()).decode()}}}
 
     def users(self):
@@ -442,3 +443,141 @@ def test_what_the_applicants_own_mail_did_before_is_taken_back_once(app_env):
         assert s.query(Outgoing).filter_by(status="draft").count() == 0
         assert s.get(Application, app_id).status == "confirmed"                                         # the move it made, taken back
     assert mail.forget_own_mail() == 0
+
+
+def test_mail_from_before_the_program_read_it_is_read_back_to_before_the_first_application(gmail, monkeypatch):
+    """The earliest applications' assessments, interviews and rejections were in the inbox and nowhere in the program:
+    mail was only ever read for the last three days (2026-11-25). Once, it is read back to two weeks before the first
+    application on record - put on the applications, dated when it came, asking nothing of the applicant now."""
+    from datetime import datetime
+
+    from autoapply import notify
+    from autoapply.models import Application, Job, MailEvent, Todo
+
+    with db.session() as s:
+        j = Job(source="manual", source_id="rb1", company="Acme Robotics", title="Software Intern", apply_url="https://acme.example/1", jd_text="x" * 300)
+        s.add(j)
+        s.flush()
+        s.add(Application(job_id=j.id, status="submitted", submitted_at=datetime(2026, 9, 26)))
+        s.flush()
+        app_id = s.query(Application).one().id
+    said = {"old-assessment": {"category": "assessment", "company": "Acme Robotics", "job_title": "Software Intern", "summary": "Online assessment",
+                               "due": "2026-10-10", "due_text": "October 10"},
+            "old-interview": {"category": "interview", "company": "Globex", "job_title": "Data Intern", "summary": "An interview", "due": "2026-10-20T10:00"},
+            "old-rejection": {"category": "rejection", "company": "Initech", "job_title": "Intern", "summary": "Not moving forward"}}
+    monkeypatch.setattr(mail, "triage", lambda subj, frm, body, received=None: {"event": "new", **said[subj]})
+    sent = []
+    monkeypatch.setattr(notify, "send", lambda *a, **k: sent.append(a))
+    for mid in said:
+        gmail.arrive(mid, mid, sender="jobs@example.com", date="Tue, 06 Oct 2026 10:00:00 +0000")
+
+    since = mail.back_due()
+    assert since is not None and since.date().isoformat() == "2026-09-12"            # two weeks before the first application
+    out = mail.read_back()
+    assert out["new_mail"] == 3 and out["read_back_to"] == "2026-09-12"
+    assert f"after:{int(since.timestamp())}" in gmail.queries[0]                            # oldest week first
+    with db.session() as s:
+        a = s.get(Application, app_id)
+        assert a.status == "assessment"                                                  # on its application, its stage
+        me = s.query(MailEvent).filter_by(message_id="old-assessment").one()
+        assert me.application_id == app_id and me.received_at.date().isoformat() == "2026-10-06"   # dated when it came
+        cards = [(t.kind, t.ref) for t in s.query(Todo).filter_by(status="open")]
+    # nothing asked now: no notice, no card for an assessment that is over; only the interview with no application to
+    # place gets "which application is this?"; the rejection of an unknown application is kept, no card
+    assert sent == [] and cards == [("mail_unmatched", "mail:old-interview")]
+    assert mail.back_due() is None and mail.read_back() == {"skipped": "read back already"}
+    # an application older than that comes in (a table brought in): read back further, once more
+    with db.session() as s:
+        j2 = Job(source="manual", source_id="rb2", company="Older Co", title="Intern", apply_url="https://older.example/1", jd_text="x" * 300)
+        s.add(j2)
+        s.flush()
+        s.add(Application(job_id=j2.id, status="submitted", submitted_at=datetime(2026, 8, 1)))
+    assert mail.back_due().date().isoformat() == "2026-07-18"
+
+
+def test_the_applicant_reads_past_mail_from_the_first_open_application_or_a_span_of_their_own(gmail, monkeypatch):
+    """Settings, mailbox: past mail read from the first application not put away, or for dates the applicant chooses
+    (2026-11-26). A span with an end reads only up to it, and does not move how far back the mail counts as read."""
+    from datetime import datetime
+
+    from fastapi.testclient import TestClient
+
+    from autoapply import tasks
+    from autoapply.api.main import app
+    from autoapply.models import Application, Job, Task
+
+    with db.session() as s:
+        for n, (when, put_away) in enumerate([(datetime(2026, 7, 1), True), (datetime(2026, 9, 26), False)]):
+            j = Job(source="manual", source_id=f"sp{n}", company=f"Co {n}", title="Intern", apply_url=f"https://co{n}.example/1", jd_text="x" * 300)
+            s.add(j)
+            s.flush()
+            s.add(Application(job_id=j.id, status="submitted", submitted_at=when, archived_at=datetime(2026, 8, 1) if put_away else None))
+    c = TestClient(app)
+    st = c.get("/api/mailbox").json()["read_back"]
+    assert st["first_open"] == "2026-09-12" and st["read_to"] == "" and not st["reading"]          # (the one put away does not count)
+    r = c.post("/api/mailbox/read-back", json={}).json()
+    assert r["since"] == "2026-09-12" and c.get("/api/mailbox").json()["read_back"]["reading"]
+    assert c.post("/api/mailbox/read-back", json={"since": "2026-10-05", "until": "2026-10-01"}).status_code == 400
+    assert c.post("/api/mailbox/read-back", json={"since": "not a day"}).status_code == 400
+    r = c.post("/api/mailbox/read-back", json={"since": "2026-06-01", "until": "2026-06-30"}).json()
+    assert r == {"task_id": r["task_id"], "since": "2026-06-01", "until": "2026-06-30"}
+    with db.session() as s:
+        t = s.get(Task, r["task_id"])
+    monkeypatch.setattr(mail, "triage", lambda *a, **k: {"category": "other", "company": "", "job_title": "", "summary": ""})
+    out = tasks._handlers["mail"](t)
+    assert out["read_back_to"] == "2026-06-01" and out["until"] == "2026-07-01"
+    q = gmail.queries[-1]
+    from datetime import timezone
+
+    assert f"after:{int(datetime(2026, 6, 1, tzinfo=timezone.utc).timestamp())}" in gmail.queries[-5] and f"before:{int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp())}" in q
+    assert db.get_setting(mail.READ_BACK) in (None, "")                                            # (a span with an end: not "read back to")
+
+
+
+def test_reading_back_does_not_undo_newer_mail_takes_week_by_week_and_is_not_done_when_a_week_was_full(gmail, monkeypatch):
+    """Review of the reading back: an older cancellation does not call off a newer invitation on record; a cancellation
+    reaches the calendar whatever its date; a week with more new mail than is read at once is not taken as read; the
+    hourly pass queues what is due when older applications come in."""
+    from datetime import datetime
+
+    from autoapply import tasks
+    from autoapply.models import Application, Job, MailEvent, Task
+
+    with db.session() as s:
+        j = Job(source="manual", source_id="rv1", company="Acme Robotics", title="Software Intern", apply_url="https://acme.example/1", jd_text="x" * 300)
+        s.add(j)
+        s.flush()
+        s.add(Application(job_id=j.id, status="interview", submitted_at=datetime(2026, 10, 20)))
+        s.flush()
+        app_id = s.query(Application).one().id
+        s.add(MailEvent(message_id="new-invite", subject="Interview", received_at=datetime(2026, 11, 20), category="interview", application_id=app_id))
+    said = {"old-cancel": {"category": "interview", "event": "cancelled", "company": "Acme Robotics", "job_title": "Software Intern", "summary": "Called off"}}
+    monkeypatch.setattr(mail, "triage", lambda subj, frm, body, received=None: said[subj])
+    asked = []
+    monkeypatch.setattr(mail, "_asked", lambda *a: asked.append(a[3]))
+    gmail.arrive("old-cancel", "old-cancel", date="Mon, 02 Nov 2026 10:00:00 +0000")
+    mail.read_back()
+    with db.session() as s:
+        assert s.get(Application, app_id).status == "interview"                             # the newer invitation stands
+    assert asked == []                                                                        # (and the calendar keeps it)
+    # without newer mail on record, an old cancellation without a date reaches the calendar (it closes the item)
+    with db.session() as s:
+        s.query(MailEvent).filter_by(message_id="new-invite").delete()
+        s.query(MailEvent).filter_by(message_id="old-cancel").delete()
+    db.set_setting(mail.READ_BACK, "")
+    mail.read_back()
+    assert asked == ["cancelled"]
+    # a week with more new mail than is read at once: not taken as read
+    with db.session() as s:
+        s.query(MailEvent).delete()
+    db.set_setting(mail.READ_BACK, "")
+    monkeypatch.setattr(mail, "BACK_LIMIT", 1)
+    gmail.arrive("another", "old-cancel", date="Tue, 03 Nov 2026 10:00:00 +0000")
+    out = mail.read_back()
+    assert out["whole"] is False and db.get_setting(mail.READ_BACK) in (None, "") and mail.back_due() is not None
+    # the hourly pass queues what is due
+    monkeypatch.setattr(mail, "track", lambda **kw: {"new_mail": 0, "status_updates": 0, "unmatched": 0})
+    monkeypatch.setattr(mail, "reconcile", lambda: 0)
+    tasks._handlers["mail"](Task(kind="mail", ref="schedule", payload={}))
+    with db.session() as s:
+        assert s.query(Task).filter_by(kind="mail", ref="history").count() == 1

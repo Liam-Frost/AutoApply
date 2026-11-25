@@ -247,6 +247,7 @@
  "server.api.main.microsoftWebsite": "Site de Microsoft",
  "server.api.main.newPostingsToScore": "Nouvelles annonces à noter",
  "server.api.main.noAiServiceSpecified": "Aucun service d’IA indiqué",
+ "server.api.main.noOpenApplication": "Aucune candidature n’est encore ouverte : choisissez les dates à lire.",
  "server.api.main.noSuchAccount": "Aucun compte n’est enregistré pour ce site",
  "server.api.main.noSuchApplication": "Candidature introuvable",
  "server.api.main.noTailoredRSum": "Pas encore de CV adapté pour cette annonce",

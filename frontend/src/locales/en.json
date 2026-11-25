@@ -1337,7 +1337,18 @@
       "emailSettingsSaved": "Email settings saved",
       "fileSavedNowClick": "File saved, now click \"Authorize\"",
       "theBrowserIsOpen": "The browser is open: finish Google's authorization there, ticking every permission it lists",
-      "removeAccessAsk": "Remove the Outlook authorization? The app cannot read this mailbox until you authorize again."
+      "removeAccessAsk": "Remove the Outlook authorization? The app cannot read this mailbox until you authorize again.",
+      "mailFromBefore": "Mail from before",
+      "mailFromBeforeHelp": "Every few minutes only new mail is read. Mail from before - the replies to applications you made earlier - is read here as history: it goes on the applications, dated when it came, with no notices and no cards for what is over. Mail already read is not read again.",
+      "readBackTo": "Read back to {day}",
+      "notReadBackYet": "Mail from before has not been read yet",
+      "readingNow": "reading now",
+      "readFromFirstOpen": "Read from the first open application ({day}) on",
+      "spanFrom": "From",
+      "spanTo": "To (empty: until now)",
+      "readThisSpan": "Read this span",
+      "readingFrom": "Mail from {from} on is being read",
+      "readingSpan": "Mail from {from} to {to} is being read"
     },
     "access": {
       "whereAutoapplyCanBe": "Where AutoApply can be opened from",

@@ -247,6 +247,7 @@
  "server.api.main.microsoftWebsite": "Microsoft 官网",
  "server.api.main.newPostingsToScore": "待评分的新岗位",
  "server.api.main.noAiServiceSpecified": "没有指定 AI 服务",
+ "server.api.main.noOpenApplication": "还没有未归档的申请：请自己选要读的日期。",
  "server.api.main.noSuchAccount": "没有这个网站的账号记录",
  "server.api.main.noSuchApplication": "没有这份申请",
  "server.api.main.noTailoredRSum": "这个岗位还没有定制简历",

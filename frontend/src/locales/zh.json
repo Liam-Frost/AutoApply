@@ -1337,7 +1337,18 @@
       "emailSettingsSaved": "邮箱设置已保存",
       "fileSavedNowClick": "文件已保存，接着点“授权”",
       "theBrowserIsOpen": "已打开浏览器，请在里面完成 Google 授权：把列出的几项权限都勾上",
-      "removeAccessAsk": "移除 Outlook 授权？重新授权之前，程序无法读取这个邮箱。"
+      "removeAccessAsk": "移除 Outlook 授权？重新授权之前，程序无法读取这个邮箱。",
+      "mailFromBefore": "以往的邮件",
+      "mailFromBeforeHelp": "平时只读新到的邮件。更早的邮件（以前那些申请收到的回复）在这里按历史读取：记到对应申请上，日期按收到的时间，不发通知，已经过去的事不生成待办。已经读过的邮件不会重复读。",
+      "readBackTo": "已往回读到 {day}",
+      "notReadBackYet": "还没有读过以往的邮件",
+      "readingNow": "正在读取",
+      "readFromFirstOpen": "从最早未归档的申请（{day}）读起",
+      "spanFrom": "从",
+      "spanTo": "到（空着就是到现在）",
+      "readThisSpan": "读这段时间",
+      "readingFrom": "正在读取 {from} 以来的邮件",
+      "readingSpan": "正在读取 {from} 到 {to} 的邮件"
     },
     "access": {
       "whereAutoapplyCanBe": "从哪里可以打开 AutoApply",

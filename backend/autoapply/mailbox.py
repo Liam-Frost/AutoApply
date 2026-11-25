@@ -288,11 +288,17 @@ def fetch_new(limit: int = 50, *, skip: Any = None) -> list[Message] | None:
     return [x for x in _received(msgs) if _relevant(x)]
 
 
-def fetch(since: datetime, limit: int = 50, *, job_related: bool = False, skip: Any = None) -> list[Message]:
-    """Messages received after ``since``, newest first. ``job_related`` keeps only mail that looks like it is about an
-    application. ``skip(id)``: messages already known, which need not be fetched again (Gmail)."""
+def fetch(since: datetime, limit: int = 50, *, job_related: bool = False, skip: Any = None, until: datetime | None = None) -> list[Message]:
+    """Messages received after ``since`` (and before ``until``), newest first. ``job_related`` keeps only mail that looks
+    like it is about an application. ``skip(id)``: messages already known, which need not be fetched again (Gmail)."""
+    def before(msgs: list[Message]) -> list[Message]:
+        if until is None:
+            return msgs
+        end = until if until.tzinfo else until.replace(tzinfo=timezone.utc)
+        return [x for x in msgs if x.date is None or (x.date if x.date.tzinfo else x.date.replace(tzinfo=timezone.utc)) < end]
+
     if kind() == "imap":
-        msgs = _received(_imap_fetch(since, limit * 3 if job_related else limit))
+        msgs = before(_received(_imap_fetch(since, limit * 3 if job_related else limit)))
         if job_related:
             msgs = [x for x in msgs if _relevant(x)][:limit]
         return msgs
@@ -300,9 +306,10 @@ def fetch(since: datetime, limit: int = 50, *, job_related: bool = False, skip: 
 
     days = max(1, (datetime.now(timezone.utc) - since).days + 1)
     # (a search covers the whole mailbox: what was sent from it and the drafts in it are left out here already)
-    q = f"newer_than:{days}d after:{int(since.timestamp())} -in:sent -in:drafts" + (f" {mail.QUERY}" if job_related else "")
+    q = (f"newer_than:{days}d after:{int(since.timestamp())}" + (f" before:{int(until.timestamp())}" if until else "") + " -in:sent -in:drafts"
+         + (f" {mail.QUERY}" if job_related else ""))
     mail.remember_address()
-    out = _received([_gmail_message(g) for g in mail._list(q, limit, skip=skip)])
+    out = before(_received([_gmail_message(g) for g in mail._list(q, limit, skip=skip)]))
     if not mail.db.get_setting(mail.HISTORY):
         mail.mark_history()        # from here on, "what is new" can be asked (fetch_new)
     return out

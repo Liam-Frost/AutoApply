@@ -125,7 +125,14 @@ def _mail(t: Task) -> dict[str, Any]:
             if app is None or app.status not in ("submitted", UNKNOWN):
                 return {"skipped": "the application is confirmed already"}
     try:
+        if t.payload.get("history"):      # the mail from before the program read it (mail.read_back): once, or a span asked for
+            from datetime import datetime as _dt, timezone as _tz
+
+            day = lambda k: _dt.fromisoformat(str(t.payload[k])).replace(tzinfo=_tz.utc) if t.payload.get(k) else None  # noqa: E731
+            return mail.read_back(day("since"), day("until"))
         out = mail.track(days=int(t.payload.get("days", 3)), quick=bool(t.payload.get("quick")))
+        if mail.back_due() is not None:      # (older applications since the last look: their mail is read back too)
+            tasks.enqueue("mail", ref="history", payload={"history": True}, priority=150)
         if out.get("skipped"):
             return out
         fixed = mail.reconcile()      # a confirmation read while the application was taken for unsent
