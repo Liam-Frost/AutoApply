@@ -183,7 +183,9 @@
     "registerAgainHint": "Le compte créé ici auparavant est abandonné : son mot de passe enregistré et sa connexion sont supprimés. La prochaine fois, l’agent crée un nouveau compte avec cette adresse et poursuit la candidature. Une adresse avec +quelque chose arrive dans la même boîte (Gmail, Outlook et d’autres).",
     "registerAgainGo": "Créer le compte",
     "registeringAgain": "L’agent va créer un nouveau compte sur ce site et poursuivre la candidature.",
-    "registerAgainMenu": "Créer un nouveau compte…"
+    "registerAgainMenu": "Créer un nouveau compte…",
+    "signInWithProvider": "Se connecter avec {provider}",
+    "signsInWith": "Ce site se connecte désormais avec {provider} : l’agent reprend la candidature"
   },
   "language": {
     "beta": "{name} (bêta)"

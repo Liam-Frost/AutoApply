@@ -143,6 +143,9 @@ const registerAgain = (t) => act(async () => {
   await api.post('/accounts/register-again', { tenant_key: t.payload.tenant_key, email: registerAs.value[t.id] })
   registering.value[t.id] = false
 }, T('todos.registeringAgain'))
+// "Sign in with Google": the applicant signs in to this site with a provider whose sign-in the program holds - the
+// agent uses it from here (the site's work moves to the browser that sign-in lives in)
+const signInWith = (t, p) => act(() => api.post('/accounts/sign-in-with', { tenant_key: t.payload.tenant_key, provider: p.key }), T('todos.signsInWith', { provider: p.name }))
 const done = (t) => act(() => api.post(`/todos/${t.id}/done`, {}), T('todos.resumed'))
 const codes = ref({})        // what is being typed into each code card
 const giveCode = (t) => act(async () => {
@@ -212,8 +215,10 @@ function acts(t) {
     menu = [away]
     // what is kept of a sign-in is said where the button is; how to have the app sign in by itself is help
     more = t.remembers ? { remember: true } : p.tenant_key.startsWith('idp:') ? { note: T('todos.onlyTheSignIn') } : { help: T('todos.inThisSignIn') }
-    // a new account instead of the one that cannot be signed into: in sight, after what belongs to the sign-in
-    if (t.register_as !== undefined) more.then = [A(T('todos.registerAgainMenu'), 'user', { go: () => askRegister(t), disabled: !!registering.value[t.id] })]
+    // after what belongs to the sign-in: signing in with a provider the program holds a sign-in with (the agent does
+    // it), and a new account instead of the one that cannot be signed into
+    more.then = [...(t.sign_in_with || []).map((v) => A(T('todos.signInWithProvider', { provider: v.name }), 'login', { go: () => signInWith(t, v) })),
+      ...(t.register_as !== undefined ? [A(T('todos.registerAgainMenu'), 'user', { go: () => askRegister(t), disabled: !!registering.value[t.id] })] : [])]
   } else if (t.kind === 'code') {
     main = A(T('todos.giveItToThe'), 'check', { go: () => giveCode(t), disabled: !codes.value[t.id] })
     menu = [away]; more = { note: T('todos.theAgentIsWaiting') }

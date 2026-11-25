@@ -183,7 +183,9 @@
     "registerAgainHint": "The account made here before is given up: its stored password and sign-in are removed. The next time the agent is on this site it registers a new account with this address and goes on with the application. An address with +something reaches the same mailbox (Gmail, Outlook and others).",
     "registerAgainGo": "Register again",
     "registeringAgain": "The agent will register a new account there and go on with the application.",
-    "registerAgainMenu": "Register again…"
+    "registerAgainMenu": "Register again…",
+    "signInWithProvider": "Sign in with {provider}",
+    "signsInWith": "This site is signed in to with {provider} from now on - the agent goes on with the application"
   },
   "language": {
     "beta": "{name} (beta)"

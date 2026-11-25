@@ -362,18 +362,40 @@ class Desk:
         acct = auth.account(self.site) or {}
         return str(acct.get("login_email") or "") if acct.get("status") == "register" and acct.get("login_email") else self.login
 
+    def _signs_in_with(self) -> str:
+        """What the agent is told about signing in with a provider: the one the applicant chose for this site, or the
+        ones the program holds a sign-in with (the agent saw "Continue with Google" on a site, knew nothing of the
+        applicant's saved Google sign-in, and could only hand the sign-in over - 2026-11-25)."""
+        from .. import auth, browser, browser_policy, sites
+
+        names = {k: v["name"] for k, v in browser.identities().items()}
+        via = sites.fact(sites.account(self.site), "sign_in_via")
+        if via in names:
+            name = names[via]
+            if browser_policy.session_browser(f"idp:{via}") != (browser.in_use()[0] or "playwright"):
+                return (f" The applicant signs in to this site with {name}, whose sign-in is saved in the other browser, not this one: change_browser "
+                        f"to sign in there.")
+            return (f" The applicant signs in to this site with {name}: use the site's own \"Sign in with {name}\" (or \"Continue with {name}\"); "
+                    f"{name}'s sign-in is saved in this browser, so it goes through without a password - pick the applicant's account if {name} asks "
+                    f"which. Nothing is registered and no password is typed for this site. If {name} asks for its password or a code, that is the "
+                    "applicant's: sign_in_by_hand.")
+        held = [names[k] for k in names if auth.holds(k)]
+        return (f" The program holds the applicant's sign-in with {', '.join(held)}; whether they sign in to this site with it is theirs to choose "
+                "- the card that hands them the sign-in offers it." if held else "")
+
     def account(self) -> str:
         from .. import auth
 
         acct = auth.account(self.site)
+        via = self._signs_in_with()
         if not acct:
-            return f"No account is on record for this site. The e-mail address to register or sign in with: {self.login or '(none on record: ask)'}."
+            return f"No account is on record for this site. The e-mail address to register or sign in with: {self.login or '(none on record: ask)'}." + via
         if acct["status"] == "register":
             return (f"The applicant asked for a NEW account on this site, made with {acct['login_email']}: the account made here before could not be "
                     "signed into, and they gave it up. Register (type_password with new=true) with that address; do not sign in with another. "
                     "If the site says this address is already registered, that is theirs to deal with: sign_in_by_hand.")
         return (f"Account on record: login name {acct['login_email'] or self.login or '(not recorded)'}; password {'stored' if acct['has_password'] else 'NOT stored'}; "
-                f"status {acct['status']}.")
+                f"status {acct['status']}.") + via
 
     def type_password(self, ref: str, then_click: str = "", new: bool = False, length: int = 20, symbols: str = "!@#$%^&*") -> str:
         """The applicant's password for this site, typed by the program into the box ``ref``; then ``then_click`` is
@@ -839,7 +861,28 @@ class Desk:
         return (f"This run ends here. The application is taken up again at once in {BROWSERS[other].split(' (')[0]}; what you wrote down is in that run's "
                 "brief. Stop now: no report is needed.")
 
+    # (the names a page gives its buttons and links - what a "Sign in with ..." is found by)
+    _NAMES = """() => [...document.querySelectorAll('a, button, [role=button], input[type=submit], input[type=button]')]
+        .map(e => [e.innerText, e.value, e.getAttribute('aria-label'), e.getAttribute('title'),
+                   ...[...e.querySelectorAll('img[alt], svg[aria-label]')].map(i => i.getAttribute('alt') || i.getAttribute('aria-label'))]
+                  .filter(Boolean).join(' ').replace(/\\s+/g, ' ').trim())
+        .filter(t => t && t.length <= 80)"""
+
+    def _offered_here(self) -> None:
+        """Which "Sign in with ..." the page offers, read by the program when the sign-in is handed to the applicant: the
+        site's card offers those the program holds a sign-in with (auth.sign_in_options)."""
+        from .. import browser, sites
+
+        try:
+            names = self.hands.page.evaluate(self._NAMES) or []
+        except Exception as e:  # noqa: BLE001 - what the page offers is a help to the card, not the sign-in itself
+            tolerated(e)
+            return
+        offered = [k for k, v in browser.identities().items() if any(re.search(r"\b" + re.escape(v["name"]) + r"\b", str(n), re.I) for n in names)]
+        sites.set_fact(sites.account(self.site), "sso_offered", offered)
+
     def sign_in_by_hand(self, why: str) -> str:
+        self._offered_here()
         self.waiting = str(why)[:600]
         self.write("needs_applicant", why=self.waiting, url=self.hands.page.url)
         return "The window is the applicant's from here. This run is over: call report with outcome needs_you, saying what you had done up to here."

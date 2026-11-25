@@ -129,6 +129,13 @@ def of_session(tenant: str, rules: list | None = None, _seen: tuple = ()) -> Sel
     for rule in rules:
         if rule.get("tenant") and rule["tenant"] in (tenant, key):
             return Selection(rule["backend"], f"tenant: {rule['tenant']}")
+    # 4. a site the applicant signs in to with a provider: in the browser that provider's sign-in lives in - in the
+    # other, "Sign in with Google" finds no Google sign-in (and one carried over would get the real one signed out)
+    via = sites.fact(key, "sign_in_via")
+    if via and not key.startswith("idp:") and key not in _seen:
+        found = of_session(f"idp:{via}", rules, (*_seen, key))
+        if found is not None:
+            return Selection(found.backend, f"{key} signs in with {via}; {found.reason}")
     return None
 
 

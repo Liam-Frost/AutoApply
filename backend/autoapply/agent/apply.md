@@ -65,8 +65,8 @@ and not the browser: other pages of the same site open, and the page speaks of t
 - An account, where the site needs one: sign in with the one on record. When none is on record, register one with the
   applicant's e-mail address (`type_password` with new) - unless the profile says not to, or the site says the address
   is already registered (then it is theirs to sign in to: `sign_in_by_hand`). "Sign in with Google / LinkedIn ..."
-  only where the profile says so or the site offers nothing else. A sign-in form the browser has already filled in
-  can simply be sent.
+  where `account` says the applicant signs in to this site that way, where the profile says so, or where the site
+  offers nothing else. A sign-in form the browser has already filled in can simply be sent.
 - A cover letter only when the posting or the form requires one; the files you may upload are listed in the brief,
   and `cover_letter` has one written when it is asked for and not among them.
 - A résumé rewritten for this posting: the brief says whether there is one, and what the applicant wants about it.

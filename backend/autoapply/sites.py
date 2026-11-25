@@ -28,7 +28,11 @@ log = logging.getLogger("autoapply.sites")
 # ("atozpublic.idprism-auth.amazon.com" for www.amazon.jobs): the site's own sign-in, though on another address.
 # second_factor: did the last sign-in with the stored password ask for an approval on the applicant's phone (True / False;
 # None while that is not known)? A sign-in that will ring their phone is not begun by the program in their quiet hours.
-FACTS = {"sso_offered": [], "needs_window": False, "session_browser": "", "sign_in_hosts": [], "second_factor": None}
+FACTS = {"sso_offered": [], "needs_window": False, "session_browser": "", "sign_in_hosts": [], "second_factor": None,
+         # the provider the applicant signs in to this site with (a key of browser.identities): chosen on the site's
+         # sign-in card - its work then follows that provider's browser (browser_policy), and the agent uses the
+         # site's own "Sign in with ..."
+         "sign_in_via": ""}
 KEEP_NOTES = 12
 
 
@@ -130,6 +134,15 @@ def fact(key: str, what: str, default: Any = None) -> Any:
         row = s.get(Site, norm(key))
         got = (row.facts or {}).get(what) if row is not None else None
     return got if got is not None else (FACTS[what] if default is None else default)
+
+
+def found_out(key: str, what: str) -> bool:
+    """Has this been found out about the site at all (an empty list found is not the same as never looked)?"""
+    if what not in FACTS:
+        raise KeyError(what)
+    with db.session() as s:
+        row = s.get(Site, norm(key))
+        return row is not None and what in (row.facts or {})
 
 
 def set_fact(key: str, what: str, value: Any) -> None:

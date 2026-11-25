@@ -1298,6 +1298,7 @@ def list_todos(status: str = "open") -> list[dict[str, Any]]:
         r["site"] = humanize.site(key) if key else None
         if r["kind"] in ("takeover", "login") and key and not key.startswith("idp:"):      # (the address a new account here would be made with)
             r["register_as"] = auth.fresh_address(key, (r["site"] or {}).get("name", "") if isinstance(r["site"], dict) else "")
+            r["sign_in_with"] = auth.sign_in_options(key)      # (providers the program holds a sign-in with, that this site offers)
         r["explained"] = humanize.explain(r["body"])
         r["subject"] = humanize.subject(r["ref"])
     return rows
@@ -2446,6 +2447,23 @@ async def import_session(file: UploadFile = File(...), passphrase: str = Form(""
     except transfer.Refused as e:
         raise HTTPException(400, str(e)) from e
     return {**got, "name": humanize.site(got["tenant"])["name"] if not got["tenant"].startswith("idp:") else got["tenant"][4:], "resumed": handlers.resume_waiting(f"account:{got['tenant']}")}
+
+
+@app.post("/api/accounts/sign-in-with")
+def account_sign_in_with(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """"Sign in with Google" on a site's sign-in card: the applicant signs in to this site with a provider whose
+    sign-in the program holds - the agent uses it (auth.sign_in_with). The site's sign-in cards close, and the work
+    that waited for them goes on."""
+    key, provider = str(body.get("tenant_key") or ""), str(body.get("provider") or "")
+    if not key or key.startswith("idp:"):
+        raise HTTPException(400, "not a site's own account")
+    try:
+        auth.sign_in_with(key, provider)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    for kind in ("takeover", "login"):
+        notify.close_todos(kind, f"account:{key}")
+    return {"resumed": handlers.resume_waiting(f"account:{key}")}
 
 
 @app.post("/api/accounts/register-again")
